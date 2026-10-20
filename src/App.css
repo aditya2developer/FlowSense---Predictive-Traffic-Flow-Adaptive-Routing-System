@@ -1,0 +1,632 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f5f7fb;
+  color: #1f2937;
+}
+
+.app {
+  min-height: 100vh;
+}
+
+.navbar {
+  background: #111827;
+  color: white;
+  padding: 20px 60px;
+}
+
+.navbar h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.navbar p {
+  margin: 5px 0 0;
+  color: #d1d5db;
+}
+
+.main {
+  padding: 60px 20px;
+}
+
+.hero {
+  text-align: center;
+}
+
+.hero h2 {
+  font-size: 42px;
+  margin-bottom: 15px;
+}
+
+.hero p {
+  color: #6b7280;
+  font-size: 18px;
+}
+
+.search-box {
+  background: white;
+  width: 500px;
+  max-width: 95%;
+  margin: 40px auto;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.input-group {
+  margin-bottom: 20px;
+}
+
+.input-group label {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.search-button {
+  width: 100%;
+  padding: 14px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.search-button:hover {
+  background: #1d4ed8;
+}
+
+/* =========================
+   ROUTE RESULTS
+========================= */
+
+.route-section {
+  width: 900px;
+  max-width: 95%;
+  margin: 50px auto;
+}
+
+.route-section h2 {
+  font-size: 28px;
+  margin-bottom: 20px;
+}
+
+
+/* =========================
+   ROUTE CARD
+========================= */
+
+.route-card {
+  background: white;
+
+  border-radius: 15px;
+
+  padding: 25px;
+
+  margin-bottom: 20px;
+
+  border: 2px solid transparent;
+
+  box-shadow:
+    0 8px 25px rgba(0, 0, 0, 0.06);
+}
+
+
+/* Recommended route */
+
+.route-card.recommended {
+  border-color: #22c55e;
+  background: #f0fdf4;
+}
+
+
+/* Header */
+
+.route-header {
+  display: flex;
+
+  justify-content: space-between;
+
+  align-items: center;
+
+  margin-bottom: 20px;
+}
+
+
+.route-header h3 {
+  margin: 0;
+
+  font-size: 24px;
+}
+
+
+/* Badge */
+
+.recommended-badge {
+  background: #22c55e;
+
+  color: white;
+
+  padding: 7px 12px;
+
+  border-radius: 20px;
+
+  font-size: 13px;
+
+  font-weight: bold;
+}
+
+
+/* Route details */
+
+.route-details {
+  display: grid;
+
+  grid-template-columns:
+    repeat(5, 1fr);
+
+  gap: 15px;
+}
+
+
+.route-details div {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 6px;
+}
+
+
+.route-details span {
+  color: #64748b;
+
+  font-size: 13px;
+}
+
+
+.route-details strong {
+  font-size: 16px;
+}
+
+
+/* Message */
+
+.route-message {
+  margin-top: 20px;
+
+  padding: 12px;
+
+  background: #f8fafc;
+
+  border-radius: 8px;
+
+  color: #475569;
+}
+
+
+/* Mobile */
+
+@media (max-width: 700px) {
+
+  .navbar {
+    padding: 15px 20px;
+  }
+
+  .nav-links {
+    display: none;
+  }
+
+  .hero h1 {
+    font-size: 34px;
+  }
+
+  .route-details {
+    grid-template-columns:
+      repeat(2, 1fr);
+  }
+
+}
+
+/* =========================
+   RESULTS LAYOUT
+========================= */
+
+.results-layout {
+  width: 1200px;
+  max-width: 95%;
+
+  margin: 50px auto;
+
+  display: grid;
+
+  grid-template-columns: 1.5fr 1fr;
+
+  gap: 25px;
+
+  align-items: start;
+}
+
+
+/* =========================
+   MAP
+========================= */
+
+.map-container {
+  width: 100%;
+
+  height: 650px;
+
+  background: white;
+
+  border-radius: 18px;
+
+  overflow: hidden;
+
+  box-shadow:
+    0 8px 25px rgba(0, 0, 0, 0.06);
+}
+
+
+.map-placeholder {
+  width: 100%;
+
+  height: 100%;
+
+  display: flex;
+
+  flex-direction: column;
+
+  justify-content: center;
+
+  align-items: center;
+
+  text-align: center;
+
+  background:
+    linear-gradient(
+      135deg,
+      #e2e8f0,
+      #f8fafc
+    );
+
+  color: #475569;
+}
+
+
+/* .map-icon {
+  font-size: 60px;
+
+  margin-bottom: 10px;
+} */
+
+
+.map-placeholder h3 {
+  font-size: 28px;
+
+  margin: 10px 0;
+}
+
+
+/* .map-placeholder p {
+  color: #64748b;
+} */
+
+
+/* .map-route-info {
+  display: flex;
+
+  gap: 12px;
+
+  margin-top: 20px;
+
+  flex-wrap: wrap;
+
+  justify-content: center;
+} */
+
+
+.map-route-info span {
+  padding: 8px 14px;
+
+  background: white;
+
+  border-radius: 20px;
+
+  font-size: 13px;
+
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.05);
+}
+
+
+/* =========================
+   ROUTE LIST
+========================= */
+
+.results-layout .route-section {
+  width: 100%;
+
+  margin: 0;
+}
+
+
+/* =========================
+   RESPONSIVE
+========================= */
+
+@media (max-width: 900px) {
+
+  .results-layout {
+    grid-template-columns: 1fr;
+  }
+
+  /* =========================
+   REAL MAP
+========================= */
+
+.map-container {
+  width: 100%;
+  height: 650px;
+
+  background: white;
+
+  border-radius: 18px;
+
+  overflow: hidden;
+
+  box-shadow:
+    0 8px 25px rgba(0, 0, 0, 0.06);
+}
+
+
+.real-map {
+  width: 100%;
+  height: 100%;
+}
+
+}
+.map-container {
+  width: 100%;
+  height: 650px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #e5e7eb;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+}
+
+.real-map {
+  width: 100%;
+  height: 650px !important;
+}
+
+.traffic-analytics {
+  margin: 28px 0;
+  padding: 24px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+}
+
+.traffic-analytics h2 {
+  margin-top: 0;
+  color: #172033;
+}
+
+.traffic-analytics p {
+  color: #64748b;
+}
+
+.analytics-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.analytics-controls input {
+  min-width: 180px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.analytics-controls button {
+  padding: 10px 16px;
+  color: white;
+  background: #2563eb;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.analytics-controls button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.analytics-table-wrapper {
+  overflow-x: auto;
+}
+
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.analytics-table th,
+.analytics-table td {
+  padding: 13px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.analytics-table th {
+  color: #475569;
+  background: #f8fafc;
+}
+
+.analytics-error {
+  color: #dc2626 !important;
+}
+
+.traffic-chart-card {
+  margin: 24px 0;
+  padding: 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.traffic-chart-card h2 {
+  margin-top: 0;
+  color: #172033;
+}
+
+.traffic-chart-card p {
+  color: #64748b;
+  margin-bottom: 24px;
+}
+.analytics-controls select {
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #172033;
+  cursor: pointer;
+}
+
+.analytics-controls label {
+  font-weight: 500;
+}
+
+.congestion-indicator {
+  display: inline-block;
+  min-width: 58px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.congestion-low {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.congestion-medium {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.congestion-high {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.traffic-heatmap {
+  margin: 24px 0;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.traffic-heatmap h2 {
+  margin-top: 0;
+  color: #172033;
+}
+
+.traffic-heatmap p {
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.heatmap-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.heatmap-table {
+  width: 100%;
+  min-width: 550px;
+  border-collapse: separate;
+  border-spacing: 5px;
+  text-align: center;
+}
+
+.heatmap-table th {
+  padding: 10px 6px;
+  color: #475569;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.heatmap-cell {
+  min-width: 58px;
+  padding: 12px 5px;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform 0.15s ease;
+}
+
+.heatmap-cell:hover {
+  transform: scale(1.05);
+}
+
+.heatmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 18px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.heatmap-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.heatmap-legend i {
+  width: 13px;
+  height: 13px;
+  display: inline-block;
+  border-radius: 3px;
+}
+
+.legend-low {
+  background: #22c55e;
+}
+
+.legend-medium {
+  background: #f59e0b;
+}
+
+.legend-high {
+  background: #ef4444;
+}
+
+.legend-empty {
+  background: #e5e7eb;
+}
