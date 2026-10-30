@@ -1,224 +1,270 @@
+
 const TrafficRecord = require("../models/TrafficRecord");
 
+const DAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+];
+
 async function predictTraffic(roadId, dayOfWeek, hour) {
-  // First, try to find records for this exact road, day, and hour.
-  let historicalData = await TrafficRecord.aggregate([
-    {
-      $match: {
-        roadId,
-        dayOfWeek,
-        hour
-      }
-    },
-    {
-      $group: {
-        _id: null,
+  // Validate the prediction request.
+  if (
+    typeof roadId !== "string" ||
+    !roadId.trim() ||
+    !DAY_NAMES.includes(dayOfWeek) ||
+    !Number.isInteger(hour) ||
+    hour < 0 ||
+    hour > 23
+  ) {
+    throw new Error(
+      "Invalid prediction input: provide a valid roadId, weekday, and hour."
+    );
+  }
 
-        averageVehicleCount: {
-          $avg: "$vehicleCount"
-        },
-
-        averageSpeed: {
-          $avg: "$averageSpeed"
-        },
-
-        speedVariability: {
-          $stdDevPop: "$averageSpeed"
-        },
-
-        recordCount: {
-          $sum: 1
-        },
-
-        highCongestionCount: {
-          $sum: {
-            $cond: [
-              { $eq: ["$congestionLevel", "HIGH"] },
-              1,
-              0
-            ]
-          }
-        },
-
-        mediumCongestionCount: {
-          $sum: {
-            $cond: [
-              { $eq: ["$congestionLevel", "MEDIUM"] },
-              1,
-              0
-            ]
-          }
-        },
-
-        lowCongestionCount: {
-          $sum: {
-            $cond: [
-              { $eq: ["$congestionLevel", "LOW"] },
-              1,
-              0
-            ]
-          }
-        }
-      }
-    }
-  ]);
+  // Strategy 1: Exact weekday and hour.
+  let records = await TrafficRecord.find({
+    roadId,
+    dayOfWeek,
+    hour
+  }).lean();
 
   let predictionSource = "EXACT_DAY_AND_HOUR";
 
-  // If no exact time records exist, use all records for this road.
-  if (historicalData.length === 0) {
-    historicalData = await TrafficRecord.aggregate([
-      {
-        $match: {
-          roadId
-        }
-      },
-      {
-        $group: {
-          _id: null,
+  // Strategy 2: Same hour on any day.
+  if (records.length === 0) {
+    records = await TrafficRecord.find({
+      roadId,
+      hour
+    }).lean();
 
-          averageVehicleCount: {
-            $avg: "$vehicleCount"
-          },
+    predictionSource = "SAME_HOUR_ANY_DAY";
+  }
 
-          averageSpeed: {
-            $avg: "$averageSpeed"
-          },
+  // Strategy 3: Same weekday within two hours.
+  if (records.length === 0) {
+    const sameDayRecords = await TrafficRecord.find({
+      roadId,
+      dayOfWeek
+    }).lean();
 
-          speedVariability: {
-            $stdDevPop: "$averageSpeed"
-          },
+    records = sameDayRecords.filter((record) => {
+      const difference = Math.abs(record.hour - hour);
+      const circularDifference = Math.min(
+        difference,
+        24 - difference
+      );
 
-          recordCount: {
-            $sum: 1
-          },
+      return circularDifference <= 2;
+    });
 
-          highCongestionCount: {
-            $sum: {
-              $cond: [
-                { $eq: ["$congestionLevel", "HIGH"] },
-                1,
-                0
-              ]
-            }
-          },
+    predictionSource = "NEARBY_HOURS_SAME_DAY";
+  }
 
-          mediumCongestionCount: {
-            $sum: {
-              $cond: [
-                { $eq: ["$congestionLevel", "MEDIUM"] },
-                1,
-                0
-              ]
-            }
-          },
-
-          lowCongestionCount: {
-            $sum: {
-              $cond: [
-                { $eq: ["$congestionLevel", "LOW"] },
-                1,
-                0
-              ]
-            }
-          }
-        }
-      }
-    ]);
+  // Strategy 4: Use all available records for this road.
+  if (records.length === 0) {
+    records = await TrafficRecord.find({
+      roadId
+    }).lean();
 
     predictionSource = "ROAD_HISTORY_FALLBACK";
   }
 
-  // No historical records are available for this road.
-  if (historicalData.length === 0) {
+  // No historical data exists.
+  if (records.length === 0) {
     return null;
   }
-
-  const historical = historicalData[0];
-  const recordCount = historical.recordCount;
-
-  if (!recordCount || recordCount <= 0) {
-    return null;
-  }
-
-  const highCongestionPercentage =
-    (historical.highCongestionCount / recordCount) * 100;
-
-  const mediumCongestionPercentage =
-    (historical.mediumCongestionCount / recordCount) * 100;
-
-  const lowCongestionPercentage =
-    (historical.lowCongestionCount / recordCount) * 100;
 
   /*
-   * Classify congestion using the most frequently recorded
-   * congestion level. This describes historical observations;
-   * it does not guarantee the future traffic condition.
+   * Assign temporal weights.
+   *
+   * Exact match: weight 1.
+   * Same hour on another day: weight 1.
+   * Nearby hours: weight decreases with time difference.
+   * General road history: weight decreases with time difference.
    */
-  const congestionCounts = [
-    {
-      level: "HIGH",
-      count: historical.highCongestionCount
-    },
-    {
-      level: "MEDIUM",
-      count: historical.mediumCongestionCount
-    },
-    {
-      level: "LOW",
-      count: historical.lowCongestionCount
-    }
-  ];
+  const weightedRecords = records.map((record) => {
+    let timeWeight = 1;
 
-  // Prefer HIGH, then MEDIUM, if counts are tied.
-  congestionCounts.sort((a, b) => {
-    if (b.count !== a.count) {
-      return b.count - a.count;
+    if (
+      predictionSource === "NEARBY_HOURS_SAME_DAY" ||
+      predictionSource === "ROAD_HISTORY_FALLBACK"
+    ) {
+      const difference = Math.abs(record.hour - hour);
+
+      const circularDifference = Math.min(
+        difference,
+        24 - difference
+      );
+
+      timeWeight = 1 / (circularDifference + 1);
     }
 
-    const priority = {
-      HIGH: 3,
-      MEDIUM: 2,
-      LOW: 1
+    return {
+      hour: record.hour,
+      vehicleCount: record.vehicleCount,
+      averageSpeed: record.averageSpeed,
+      congestionLevel: record.congestionLevel,
+      timeWeight
     };
-
-    return priority[b.level] - priority[a.level];
   });
 
-  const predictedCongestion = congestionCounts[0].level;
+  // Temporary debug output. Remove after verifying the results.
+  // console.log(
+  //   "FlowSense prediction debug:",
+  //   weightedRecords
+  // );
+
+  // Calculate total weight.
+  const totalWeight = weightedRecords.reduce(
+    (sum, record) => sum + record.timeWeight,
+    0
+  );
+
+  console.log( {
+  totalWeight,
+  weightedVehicleTotal: weightedRecords.reduce(
+    (sum, record) =>
+      sum + record.vehicleCount * record.timeWeight,
+    0
+  ),
+  weightedSpeedTotal: weightedRecords.reduce(
+    (sum, record) =>
+      sum + record.averageSpeed * record.timeWeight,
+    0
+  )
+});
+
+  if (totalWeight <= 0) {
+    return null;
+  }
+
+  // Calculate weighted average vehicle count.
+  const weightedVehicleCount = weightedRecords.reduce(
+    (sum, record) =>
+      sum + record.vehicleCount * record.timeWeight,
+    0
+  );
+
+  const predictedVehicleCount = Math.round(
+    weightedVehicleCount / totalWeight
+  );
+
+  // Calculate weighted average speed.
+  const weightedSpeed = weightedRecords.reduce(
+    (sum, record) =>
+      sum + record.averageSpeed * record.timeWeight,
+    0
+  );
+
+  const predictedSpeed = weightedSpeed / totalWeight;
+
+  // Calculate weighted population standard deviation of speed.
+  const weightedSquaredSpeed = weightedRecords.reduce(
+    (sum, record) =>
+      sum +
+      record.averageSpeed *
+        record.averageSpeed *
+        record.timeWeight,
+    0
+  );
+
+  const variance = Math.max(
+    0,
+    weightedSquaredSpeed / totalWeight -
+      predictedSpeed * predictedSpeed
+  );
+
+  const speedVariability = Math.sqrt(variance);
+
+  // Calculate weighted congestion totals.
+  const congestionWeights = {
+    HIGH: 0,
+    MEDIUM: 0,
+    LOW: 0
+  };
+
+  for (const record of weightedRecords) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        congestionWeights,
+        record.congestionLevel
+      )
+    ) {
+      congestionWeights[record.congestionLevel] +=
+        record.timeWeight;
+    }
+  }
+
+  const totalCongestionWeight =
+    congestionWeights.HIGH +
+    congestionWeights.MEDIUM +
+    congestionWeights.LOW;
+
+  if (totalCongestionWeight <= 0) {
+    return null;
+  }
+
+  // Prefer HIGH, then MEDIUM, then LOW when weights are tied.
+  const priority = {
+    HIGH: 3,
+    MEDIUM: 2,
+    LOW: 1
+  };
+
+  const predictedCongestion = Object.keys(
+    congestionWeights
+  ).sort(
+    (a, b) =>
+      congestionWeights[b] - congestionWeights[a] ||
+      priority[b] - priority[a]
+  )[0];
+
+  const highCongestionPercentage = Math.round(
+    (congestionWeights.HIGH / totalCongestionWeight) * 100
+  );
+
+  const mediumCongestionPercentage = Math.round(
+    (congestionWeights.MEDIUM / totalCongestionWeight) * 100
+  );
+
+  const lowCongestionPercentage = Math.round(
+    (congestionWeights.LOW / totalCongestionWeight) * 100
+  );
+
+  // Data quality reflects record quantity, not verified accuracy.
+  const dataQuality =
+    weightedRecords.length >= 20
+      ? "HIGH"
+      : weightedRecords.length >= 5
+      ? "MEDIUM"
+      : "LOW";
 
   return {
-    predictedVehicleCount: Math.round(
-      historical.averageVehicleCount
+    predictedVehicleCount,
+
+    predictedSpeed: Number(
+      predictedSpeed.toFixed(1)
     ),
 
-    predictedSpeed: Math.round(
-      historical.averageSpeed * 10
-    ) / 10,
-
-    speedVariability: Math.round(
-      (historical.speedVariability || 0) * 10
-    ) / 10,
+    speedVariability: Number(
+      speedVariability.toFixed(1)
+    ),
 
     predictedCongestion,
 
-    highCongestionPercentage: Math.round(
-      highCongestionPercentage
-    ),
+    highCongestionPercentage,
+    mediumCongestionPercentage,
+    lowCongestionPercentage,
 
-    mediumCongestionPercentage: Math.round(
-      mediumCongestionPercentage
-    ),
-
-    lowCongestionPercentage: Math.round(
-      lowCongestionPercentage
-    ),
-
-    historicalRecords: recordCount,
-
-    predictionSource
+    historicalRecords: weightedRecords.length,
+    predictionSource,
+    dataQuality
   };
 }
 
 module.exports = predictTraffic;
-

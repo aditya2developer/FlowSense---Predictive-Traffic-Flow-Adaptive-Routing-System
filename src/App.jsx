@@ -51,7 +51,11 @@ const [locations, setLocations] = useState(null);
       const data = await response.json();
 
 
-      console.log("Backend response:", data);
+      // console.log("Backend response:", data);
+      console.log(
+  "FlowSense API response:",
+  JSON.stringify(data, null, 2)
+);
 
 
       if (data.success) {

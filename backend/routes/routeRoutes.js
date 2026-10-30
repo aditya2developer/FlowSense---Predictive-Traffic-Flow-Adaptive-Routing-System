@@ -3,14 +3,11 @@ const getRoute = require("../utils/route");
 const express = require("express");
 const TrafficRecord = require("../models/TrafficRecord");
 const predictTraffic = require("../utils/predictTraffic");
-
-const calculateStabilityScore =
-  require("../utils/calculateStabilityScore");
-
-const router = express.Router();
-
+const calculateStabilityScore = require("../utils/calculateStabilityScore");
 const RoadSegment = require("../models/RoadSegment");
 const matchRoadSegments = require("../utils/matchRoadSegments");
+
+const router = express.Router();
 
 // ==========================================
 // SEARCH ROUTES
@@ -18,17 +15,22 @@ const matchRoadSegments = require("../utils/matchRoadSegments");
 
 router.post("/search", async (req, res) => {
   try {
-    const { from, to } = req.body;
+    const { from, to } = req.body || {};
 
-    if (!from || !to) {
+    if (
+      typeof from !== "string" ||
+      typeof to !== "string" ||
+      !from.trim() ||
+      !to.trim()
+    ) {
       return res.status(400).json({
         success: false,
-        message: "From and To locations are required"
+        message: "From and To locations are required."
       });
     }
 
     // 1. GEOCODE SOURCE
-    const fromLocation = await geocodeLocation(from);
+    const fromLocation = await geocodeLocation(from.trim());
 
     if (!fromLocation) {
       return res.status(404).json({
@@ -38,7 +40,7 @@ router.post("/search", async (req, res) => {
     }
 
     // 2. GEOCODE DESTINATION
-    const toLocation = await geocodeLocation(to);
+    const toLocation = await geocodeLocation(to.trim());
 
     if (!toLocation) {
       return res.status(404).json({
@@ -73,6 +75,7 @@ router.post("/search", async (req, res) => {
     console.log("OSRM ROUTES FOUND:", routeData.routes.length);
 
     // 4. GET CURRENT DAY AND HOUR
+    // Uses the backend server's local timezone.
     const days = [
       "Sunday",
       "Monday",
@@ -98,7 +101,8 @@ router.post("/search", async (req, res) => {
         !Number.isFinite(route.distance) ||
         !Number.isFinite(route.duration) ||
         !route.geometry ||
-        !Array.isArray(route.geometry.coordinates)
+        !Array.isArray(route.geometry.coordinates) ||
+        route.geometry.coordinates.length < 2
       ) {
         console.warn("Skipping invalid OSRM route:", index);
         continue;
@@ -109,7 +113,7 @@ router.post("/search", async (req, res) => {
       let matchedRoadId = null;
       let matchedRoadName = null;
 
-      // Match route with registered MongoDB road segments.
+      // 6. MATCH ROUTE WITH A REGISTERED ROAD SEGMENT
       try {
         const matchedSegments =
           await matchRoadSegments(routeCoordinates);
@@ -132,16 +136,16 @@ router.post("/search", async (req, res) => {
           );
         }
       } catch (matchError) {
-        // Matching failure must not remove a valid route.
+        // A matching error should not remove a valid OSRM route.
         console.error(
           "Road matching failed:",
-          matchError.message
+          matchError
         );
       }
 
       const roadId = matchedRoadId;
 
-      // 6. FETCH HISTORICAL TRAFFIC PREDICTION
+      // 7. FETCH HISTORICAL TRAFFIC PREDICTION
       let prediction = null;
 
       if (roadId) {
@@ -154,36 +158,50 @@ router.post("/search", async (req, res) => {
         } catch (predictionError) {
           console.error(
             `Traffic prediction failed for ${roadId}:`,
-            predictionError.message
+            predictionError
           );
         }
       }
 
-      const distanceKm =
-        Math.round((route.distance / 1000) * 100) / 100;
+      const distanceKm = Number(
+        (route.distance / 1000).toFixed(2)
+      );
 
       const currentTime = Math.max(
         1,
         Math.round(route.duration / 60)
       );
 
+      // Do not invent congestion or stability values when
+      // historical traffic data is unavailable.
       let predictedTime = currentTime;
-      let congestion = "LOW";
-      let stabilityScore = 50;
+      let congestion = null;
+      let stabilityScore = null;
 
+      // Validate the prediction before using it.
       const hasHistoricalPrediction =
         Boolean(prediction) &&
         Number.isFinite(prediction.predictedSpeed) &&
-        prediction.predictedSpeed > 0;
+        prediction.predictedSpeed > 0 &&
+        Number.isFinite(prediction.historicalRecords) &&
+        prediction.historicalRecords > 0 &&
+        ["LOW", "MEDIUM", "HIGH"].includes(
+          prediction.predictedCongestion
+        );
 
-      // 7. CALCULATE PREDICTED TIME AND STABILITY SCORE
+      // 8. CALCULATE PREDICTED TIME AND STABILITY SCORE
       if (hasHistoricalPrediction) {
-        congestion = prediction.predictedCongestion || "MEDIUM";
+        congestion = prediction.predictedCongestion;
 
         /*
-         * Prototype travel-time estimate.
+         * Prototype travel-time calculation.
+         *
          * Assumes a baseline speed of 40 km/h.
-         * This is not a live traffic prediction.
+         * This is NOT a live traffic measurement.
+         *
+         * Replace this assumption with a validated
+         * route-specific baseline when suitable data
+         * becomes available.
          */
         const baselineSpeed = 40;
 
@@ -208,7 +226,6 @@ router.post("/search", async (req, res) => {
             Number(prediction.speedVariability) || 0
         });
 
-        // Accept only valid scores.
         if (
           Number.isFinite(calculatedScore) &&
           calculatedScore >= 0 &&
@@ -219,25 +236,26 @@ router.post("/search", async (req, res) => {
       }
 
       console.log("========== ROUTE SCORE ==========");
+      console.log("Route:", index + 1);
       console.log("Road:", roadId);
       console.log("Current time:", currentTime);
       console.log("Predicted time:", predictedTime);
       console.log("Congestion:", congestion);
       console.log(
-        "High congestion %:",
-        prediction?.highCongestionPercentage
+        "Historical records:",
+        prediction?.historicalRecords
       );
       console.log(
-        "Average speed:",
+        "Predicted speed:",
         prediction?.predictedSpeed
       );
       console.log(
-        "Speed variability:",
-        prediction?.speedVariability
+        "High congestion percentage:",
+        prediction?.highCongestionPercentage
       );
-      console.log("FINAL STABILITY:", stabilityScore);
+      console.log("Stability score:", stabilityScore);
 
-      // 8. ALWAYS INCLUDE VALID OSRM ROUTES
+      // 9. INCLUDE VALID ROUTES IN THE RESPONSE
       routes.push({
         id: index + 1,
 
@@ -256,40 +274,54 @@ router.post("/search", async (req, res) => {
 
         congestion,
 
-        riskClass: congestion.toLowerCase(),
+        // Avoid calling toLowerCase() on null.
+        riskClass: congestion
+          ? congestion.toLowerCase()
+          : "unknown",
 
         stabilityScore,
 
-        // Assigned after all routes have been processed.
         recommended: false,
 
         message: hasHistoricalPrediction
           ? "Travel-time estimate uses historical traffic records and a prototype calculation."
           : roadId
-            ? "Road matched, but historical prediction is unavailable."
-            : "Real route found. Register and match its road segment to use historical traffic predictions.",
+            ? "Road matched, but a valid historical prediction is unavailable."
+            : "Route found. No registered road segment matched, so historical traffic prediction is unavailable.",
 
         geometry: route.geometry,
 
-        trafficPrediction: prediction
+        trafficPrediction: hasHistoricalPrediction
+          ? prediction
+          : null
       });
     }
 
-    // 9. RANK ROUTES
+    // If OSRM returned routes but all were invalid, report this.
+    if (routes.length === 0) {
+      return res.status(502).json({
+        success: false,
+        message: "The routing service returned no usable routes."
+      });
+    }
+
+    // 10. RANK ROUTES
     // Prefer routes with valid historical predictions.
     // Then compare stability scores and predicted travel times.
     routes.sort((a, b) => {
       const aHasPrediction =
         a.trafficPrediction &&
         Number.isFinite(a.trafficPrediction.predictedSpeed) &&
-        a.trafficPrediction.predictedSpeed > 0
+        a.trafficPrediction.predictedSpeed > 0 &&
+        Number.isFinite(a.stabilityScore)
           ? 1
           : 0;
 
       const bHasPrediction =
         b.trafficPrediction &&
         Number.isFinite(b.trafficPrediction.predictedSpeed) &&
-        b.trafficPrediction.predictedSpeed > 0
+        b.trafficPrediction.predictedSpeed > 0 &&
+        Number.isFinite(b.stabilityScore)
           ? 1
           : 0;
 
@@ -297,22 +329,33 @@ router.post("/search", async (req, res) => {
         return bHasPrediction - aHasPrediction;
       }
 
-      if (b.stabilityScore !== a.stabilityScore) {
+      // Compare scores only when both routes have scores.
+      if (
+        Number.isFinite(a.stabilityScore) &&
+        Number.isFinite(b.stabilityScore) &&
+        a.stabilityScore !== b.stabilityScore
+      ) {
         return b.stabilityScore - a.stabilityScore;
       }
 
+      // Otherwise, prefer the shorter estimated travel time.
       return a.predictedTime - b.predictedTime;
     });
 
-    // Recommend the top-ranked route only when a valid
-    // historical prediction is available.
+    // 11. RECOMMEND A ROUTE ONLY WHEN ITS PREDICTION
+    // AND STABILITY SCORE ARE VALID.
     if (routes.length > 0) {
       const firstRoute = routes[0];
 
       const firstRouteHasPrediction =
-        firstRoute.trafficPrediction &&
-        Number.isFinite(firstRoute.trafficPrediction.predictedSpeed) &&
-        firstRoute.trafficPrediction.predictedSpeed > 0;
+        Boolean(firstRoute.trafficPrediction) &&
+        Number.isFinite(
+          firstRoute.trafficPrediction.predictedSpeed
+        ) &&
+        firstRoute.trafficPrediction.predictedSpeed > 0 &&
+        Number.isFinite(firstRoute.stabilityScore) &&
+        firstRoute.stabilityScore >= 0 &&
+        firstRoute.stabilityScore <= 100;
 
       if (firstRouteHasPrediction) {
         firstRoute.recommended = true;
@@ -321,7 +364,7 @@ router.post("/search", async (req, res) => {
 
     console.log("FINAL ROUTES RETURNED:", routes.length);
 
-    // 10. SEND RESPONSE
+    // 12. SEND RESPONSE
     return res.json({
       success: true,
 
@@ -339,12 +382,9 @@ router.post("/search", async (req, res) => {
 
       routes
     });
-
   } catch (error) {
-    console.error(
-      "Route search error:",
-      error.message
-    );
+    // Full details are logged in the backend terminal.
+    console.error("Route search error:", error);
 
     return res.status(500).json({
       success: false,
@@ -377,12 +417,8 @@ router.post("/traffic", async (req, res) => {
       message: "Traffic record saved successfully",
       data: savedRecord
     });
-
   } catch (error) {
-    console.error(
-      "Error saving traffic record:",
-      error.message
-    );
+    console.error("Error saving traffic record:", error);
 
     return res.status(500).json({
       success: false,
@@ -401,13 +437,25 @@ router.get(
   async (req, res) => {
     try {
       const { roadId, dayOfWeek, hour } = req.params;
+      const numericHour = Number(hour);
+
+      if (
+        !Number.isInteger(numericHour) ||
+        numericHour < 0 ||
+        numericHour > 23
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Hour must be an integer between 0 and 23."
+        });
+      }
 
       const trafficPattern = await TrafficRecord.aggregate([
         {
           $match: {
             roadId,
             dayOfWeek,
-            hour: Number(hour)
+            hour: numericHour
           }
         },
         {
@@ -444,7 +492,7 @@ router.get(
           success: true,
           roadId,
           dayOfWeek,
-          hour: Number(hour),
+          hour: numericHour,
           data: null,
           message: "No historical traffic data found."
         });
@@ -459,31 +507,28 @@ router.get(
         success: true,
         roadId,
         dayOfWeek,
-        hour: Number(hour),
+        hour: numericHour,
 
         data: {
-          averageVehicleCount:
-            Math.round(pattern.averageVehicleCount),
+          averageVehicleCount: Math.round(
+            pattern.averageVehicleCount
+          ),
 
-          averageSpeed:
-            Math.round(pattern.averageSpeed * 10) / 10,
+          averageSpeed: Number(
+            pattern.averageSpeed.toFixed(1)
+          ),
 
-          recordCount:
-            pattern.recordCount,
+          recordCount: pattern.recordCount,
 
-          highCongestionCount:
-            pattern.highCongestionCount,
+          highCongestionCount: pattern.highCongestionCount,
 
-          highCongestionPercentage:
-            Math.round(highCongestionPercentage)
+          highCongestionPercentage: Math.round(
+            highCongestionPercentage
+          )
         }
       });
-
     } catch (error) {
-      console.error(
-        "Error calculating traffic pattern:",
-        error.message
-      );
+      console.error("Error calculating traffic pattern:", error);
 
       return res.status(500).json({
         success: false,
@@ -536,12 +581,8 @@ router.get("/traffic/history/:roadId", async (req, res) => {
       roadId,
       history
     });
-
   } catch (error) {
-    console.error(
-      "Error fetching traffic history:",
-      error.message
-    );
+    console.error("Error fetching traffic history:", error);
 
     return res.status(500).json({
       success: false,
@@ -565,12 +606,8 @@ router.get("/traffic", async (req, res) => {
       count: trafficRecords.length,
       data: trafficRecords
     });
-
   } catch (error) {
-    console.error(
-      "Error fetching traffic records:",
-      error.message
-    );
+    console.error("Error fetching traffic records:", error);
 
     return res.status(500).json({
       success: false,
@@ -588,13 +625,25 @@ router.get(
   async (req, res) => {
     try {
       const { roadId, dayOfWeek, hour } = req.params;
+      const numericHour = Number(hour);
+
+      if (
+        !Number.isInteger(numericHour) ||
+        numericHour < 0 ||
+        numericHour > 23
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Hour must be an integer between 0 and 23."
+        });
+      }
 
       const historicalData = await TrafficRecord.aggregate([
         {
           $match: {
             roadId,
             dayOfWeek,
-            hour: Number(hour)
+            hour: numericHour
           }
         },
         {
@@ -640,11 +689,13 @@ router.get(
         (historical.highCongestionCount /
           historical.recordCount) * 100;
 
-      const predictedVehicleCount =
-        Math.round(historical.averageVehicleCount);
+      const predictedVehicleCount = Math.round(
+        historical.averageVehicleCount
+      );
 
-      const predictedSpeed =
-        Math.round(historical.averageSpeed * 10) / 10;
+      const predictedSpeed = Number(
+        historical.averageSpeed.toFixed(1)
+      );
 
       let predictedCongestion;
 
@@ -667,7 +718,7 @@ router.get(
         success: true,
         roadId,
         dayOfWeek,
-        hour: Number(hour),
+        hour: numericHour,
 
         prediction: {
           predictedVehicleCount,
@@ -676,16 +727,13 @@ router.get(
           predictedTravelTime,
           distanceKm: roadDistanceKm,
           historicalRecords: historical.recordCount,
-          highCongestionPercentage:
-            Math.round(highCongestionPercentage)
+          highCongestionPercentage: Math.round(
+            highCongestionPercentage
+          )
         }
       });
-
     } catch (error) {
-      console.error(
-        "Prediction error:",
-        error.message
-      );
+      console.error("Prediction error:", error);
 
       return res.status(500).json({
         success: false,
@@ -721,13 +769,33 @@ router.post("/segments", async (req, res) => {
       });
     }
 
+    // Validate the coordinate structure.
+    const validCoordinates = coordinates.every(
+      (point) =>
+        point &&
+        Number.isFinite(point.latitude) &&
+        Number.isFinite(point.longitude) &&
+        point.latitude >= -90 &&
+        point.latitude <= 90 &&
+        point.longitude >= -180 &&
+        point.longitude <= 180
+    );
+
+    if (!validCoordinates) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Each coordinate must contain valid latitude and longitude numbers."
+      });
+    }
+
     const roadSegment = await RoadSegment.findOneAndUpdate(
       { roadId },
       {
         roadId,
         roadName,
         coordinates,
-        roadType
+        ...(roadType ? { roadType } : {})
       },
       {
         new: true,
@@ -742,12 +810,8 @@ router.post("/segments", async (req, res) => {
       message: "Road segment saved successfully",
       data: roadSegment
     });
-
   } catch (error) {
-    console.error(
-      "Error saving road segment:",
-      error.message
-    );
+    console.error("Error saving road segment:", error);
 
     return res.status(500).json({
       success: false,
@@ -773,12 +837,8 @@ router.get("/segments", async (req, res) => {
       count: segments.length,
       data: segments
     });
-
   } catch (error) {
-    console.error(
-      "Error fetching road segments:",
-      error.message
-    );
+    console.error("Error fetching road segments:", error);
 
     return res.status(500).json({
       success: false,
@@ -796,11 +856,23 @@ router.get(
   async (req, res) => {
     try {
       const { roadId, dayOfWeek, hour } = req.params;
+      const numericHour = Number(hour);
+
+      if (
+        !Number.isInteger(numericHour) ||
+        numericHour < 0 ||
+        numericHour > 23
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Hour must be an integer between 0 and 23."
+        });
+      }
 
       const prediction = await predictTraffic(
         roadId,
         dayOfWeek,
-        Number(hour)
+        numericHour
       );
 
       if (!prediction) {
@@ -814,15 +886,11 @@ router.get(
         success: true,
         roadId,
         dayOfWeek,
-        hour: Number(hour),
+        hour: numericHour,
         prediction
       });
-
     } catch (error) {
-      console.error(
-        "Prediction error:",
-        error.message
-      );
+      console.error("Prediction error:", error);
 
       return res.status(500).json({
         success: false,
@@ -841,11 +909,23 @@ router.get(
   async (req, res) => {
     try {
       const { roadId, dayOfWeek, hour } = req.params;
+      const numericHour = Number(hour);
+
+      if (
+        !Number.isInteger(numericHour) ||
+        numericHour < 0 ||
+        numericHour > 23
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Hour must be an integer between 0 and 23."
+        });
+      }
 
       const trafficRecords = await TrafficRecord.find({
         roadId,
         dayOfWeek,
-        hour: Number(hour)
+        hour: numericHour
       }).sort({
         timestamp: -1
       });
@@ -869,14 +949,14 @@ router.get(
       );
 
       const highCongestionCount = trafficRecords.filter(
-        record => record.congestionLevel === "HIGH"
+        (record) => record.congestionLevel === "HIGH"
       ).length;
 
       return res.json({
         success: true,
         roadId,
         dayOfWeek,
-        hour: Number(hour),
+        hour: numericHour,
         historicalRecords: trafficRecords.length,
 
         averageVehicleCount: Number(
@@ -895,12 +975,8 @@ router.get(
 
         records: trafficRecords
       });
-
     } catch (error) {
-      console.error(
-        "Traffic pattern error:",
-        error.message
-      );
+      console.error("Traffic pattern error:", error);
 
       return res.status(500).json({
         success: false,
@@ -1003,12 +1079,8 @@ router.get("/analytics/:roadId", async (req, res) => {
       count: analytics.length,
       data: analytics
     });
-
   } catch (error) {
-    console.error(
-      "Traffic analytics error:",
-      error.message
-    );
+    console.error("Traffic analytics error:", error);
 
     return res.status(500).json({
       success: false,
