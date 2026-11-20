@@ -262,3 +262,34 @@ export async function checkBackendHealth() {
     return false;
   }
 }
+
+// ==========================================
+// CONTACT & EMERGENCY HELPLINE APIs
+// ==========================================
+
+export async function fetchHelplines() {
+  const response = await fetch(`${BASE_URL}/api/contact/helplines`);
+  return response.json();
+}
+
+export async function submitContactMessage(data) {
+  const response = await fetch(`${BASE_URL}/api/contact`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  return response.json();
+}
+
+// ==========================================
+// PAN-INDIA SMART CITY AI COPILOT / CHATBOT API
+// ==========================================
+
+export async function sendChatMessage(message) {
+  const response = await fetch(`${BASE_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message })
+  });
+  return response.json();
+}

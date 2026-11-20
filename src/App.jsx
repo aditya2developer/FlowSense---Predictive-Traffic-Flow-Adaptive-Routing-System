@@ -7,7 +7,9 @@ import IncidentReport from "./pages/IncidentReport";
 import Login from "./pages/Login";
 import AuthorityPortal from "./pages/AuthorityPortal";
 import AdminPortal from "./pages/AdminPortal";
+import ContactHelpline from "./pages/ContactHelpline";
 import EmergencyAlertModal from "./components/EmergencyAlertModal";
+import FlowSenseChatbot from "./components/FlowSenseChatbot";
 import "./App.css";
 
 function ProtectedAuthorityRoute({ children }) {
@@ -39,8 +41,11 @@ function App() {
         <div className="flowsense-app">
           <Navbar />
 
-          {/* GLOBAL EMERGENCY ALERT MODAL — Only sounds for authenticated Traffic Police */}
+          {/* GLOBAL EMERGENCY ALERT MODAL — Police Only Hazard Dispatch (No floating button) */}
           <EmergencyAlertModal />
+
+          {/* SMART CITY AI COPILOT CHATBOT — Floating in bottom-right corner for all citizen & official queries */}
+          <FlowSenseChatbot />
 
           <main className="flowsense-main">
             <Routes>
@@ -48,6 +53,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/report" element={<IncidentReport />} />
+              <Route path="/contact" element={<ContactHelpline />} />
 
               {/* STRICTLY ROLE-PROTECTED PORTALS — Visible only after successful login */}
               <Route
@@ -76,8 +82,8 @@ function App() {
               <div className="footer-brand-ambient">
                 <span className="brand-logo-icon">🚦</span>
                 <div>
-                  <strong>FlowSense Enterprise</strong>
-                  <p>Predictive Traffic Flow &amp; Adaptive Multi-Role Routing System</p>
+                  <strong>FlowSense National Smart Mobility</strong>
+                  <p>Pan-India Predictive Traffic Flow &amp; Adaptive Emergency Routing Platform</p>
                 </div>
               </div>
               <div className="footer-links-ambient">
@@ -85,10 +91,11 @@ function App() {
                 <a href="/login?role=AUTHORITY">Police Command</a>
                 <a href="/login?role=PUBLIC">Commuter Portal</a>
                 <a href="/report">Report Hazard</a>
+                <a href="/contact">Helpline &amp; Contact (112 / 1033)</a>
               </div>
               <div className="footer-meta-ambient">
-                <span>Real-Time MongoDB Cloud • Open-Meteo Weather • OSRM Routing Grid</span>
-                <p>© {new Date().getFullYear()} FlowSense. Built for Smart Cities &amp; Safe Commuters.</p>
+                <span>Pan-India Coverage • 28 States &amp; 8 UTs • Open-Meteo Weather Grid</span>
+                <p>© {new Date().getFullYear()} FlowSense Platform. Built for MoRTH &amp; Smart Cities Mission.</p>
               </div>
             </div>
           </footer>

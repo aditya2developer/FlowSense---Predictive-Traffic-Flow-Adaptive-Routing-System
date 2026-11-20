@@ -10,7 +10,8 @@ import {
   AlertTriangle,
   ChevronDown,
   LogIn,
-  UserPlus
+  UserPlus,
+  PhoneCall
 } from "lucide-react";
 import { useState } from "react";
 
@@ -88,6 +89,13 @@ function Navbar() {
             className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
           >
             <AlertTriangle size={16} /> <span>Report Hazard</span>
+          </NavLink>
+
+          <NavLink
+            to="/contact"
+            className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
+          >
+            <PhoneCall size={16} /> <span>Helpline (112 / 1033)</span>
           </NavLink>
         </nav>
 

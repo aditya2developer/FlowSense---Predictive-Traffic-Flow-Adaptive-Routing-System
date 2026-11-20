@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 require("dotenv").config();
 
 const connectDB = require("./config/db");
@@ -7,6 +8,8 @@ const routeRoutes = require("./routes/routeRoutes");
 const authRoutes = require("./routes/authRoutes");
 const authorityRoutes = require("./routes/authorityRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const contactRoutes = require("./routes/contactRoutes");
+const chatRoutes = require("./routes/chatRoutes");
 
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
@@ -21,7 +24,12 @@ connectDB();
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+  })
+);
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -40,6 +48,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/authority", authorityRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/routes", routeRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/chat", chatRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -49,6 +59,20 @@ app.get("/api/health", (req, res) => {
     rolesSupported: ["ADMIN", "AUTHORITY", "PUBLIC"],
     timestamp: new Date().toISOString()
   });
+});
+
+// Serve frontend static build artifacts for production deployment
+const distPath = path.join(__dirname, "../dist");
+app.use(express.static(distPath));
+
+// Fallback to index.html for SPA client-side routing on non-API GET requests (Express 5 compatible)
+app.use((req, res, next) => {
+  if (req.method === "GET" && !req.path.startsWith("/api/")) {
+    return res.sendFile(path.join(distPath, "index.html"), (err) => {
+      if (err) next();
+    });
+  }
+  next();
 });
 
 // Global Error Handler

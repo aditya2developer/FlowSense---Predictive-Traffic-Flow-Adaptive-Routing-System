@@ -141,19 +141,6 @@ export default function EmergencyAlertModal() {
 
   return (
     <>
-      {/* QUICK SIREN TEST PILL (Visible only on Traffic Police interface) */}
-      <div className="emergency-drill-pill-wrap">
-        <button
-          type="button"
-          className="emergency-drill-btn police-drill-btn"
-          onClick={handleManualPoliceDrill}
-          title="Police Siren Audio Test & Hazard Response Drill"
-        >
-          <Siren size={15} className="drill-icon-spin text-cyan" />
-          <span>Test Police Hazard Siren</span>
-        </button>
-      </div>
-
       {/* POPUP HAZARD ALERT MODAL FOR POLICE */}
       {isOpen && activeAlert && (
         <div className="emergency-modal-overlay">

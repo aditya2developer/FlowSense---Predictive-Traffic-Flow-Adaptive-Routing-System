@@ -915,7 +915,7 @@ function AdminPortal({ authGate = false }) {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Officer Vikram Singh"
+                    placeholder="e.g. Officer Aditya Kumar Singh"
                     value={newUserName}
                     onChange={(e) => setNewUserName(e.target.value)}
                   />
@@ -925,7 +925,7 @@ function AdminPortal({ authGate = false }) {
                   <input
                     type="email"
                     required
-                    placeholder="e.g. vikram@flowsense.gov.in"
+                    placeholder="e.g. aditya@flowsense.gov.in"
                     value={newUserEmail}
                     onChange={(e) => setNewUserEmail(e.target.value)}
                   />
