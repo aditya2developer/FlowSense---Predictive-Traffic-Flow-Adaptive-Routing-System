@@ -16,8 +16,21 @@ async function authenticate(req, res, next) {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    const user = await User.findById(decoded.id).select("-password");
-    if (!user || !user.isActive) {
+    let user = null;
+    if (global.isMongoConnected) {
+      try {
+        user = await User.findById(decoded.id).select("-password");
+      } catch (err) {
+        user = null;
+      }
+    }
+
+    if (!user) {
+      const MemoryStore = require("../utils/memoryStore");
+      user = MemoryStore.findUserById(decoded.id) || MemoryStore.findUserByEmail(decoded.email);
+    }
+
+    if (!user) {
       return res.status(401).json({
         success: false,
         message: "User not found or account is deactivated."

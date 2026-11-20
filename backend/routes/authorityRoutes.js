@@ -2,6 +2,7 @@ const express = require("express");
 const Incident = require("../models/Incident");
 const Advisory = require("../models/Advisory");
 const RoadSegment = require("../models/RoadSegment");
+const MemoryStore = require("../utils/memoryStore");
 const geocodeLocation = require("../utils/geocode");
 const getRoute = require("../utils/route");
 const { authenticate, requireRole } = require("../middleware/auth");
@@ -11,16 +12,29 @@ const router = express.Router();
 // GET /api/authority/advisories — Active traffic police alerts
 router.get("/advisories", async (req, res) => {
   try {
-    const advisories = await Advisory.find({ status: "ACTIVE" })
-      .sort({ createdAt: -1 })
-      .limit(20);
+    if (global.isMongoConnected) {
+      try {
+        const advisories = await Advisory.find({ status: "ACTIVE" })
+          .sort({ createdAt: -1 })
+          .limit(20);
+        return res.json({
+          success: true,
+          count: advisories.length,
+          data: advisories
+        });
+      } catch (e) {
+        // Fall back to MemoryStore
+      }
+    }
+    const memAdvisories = MemoryStore.getAdvisories();
     return res.json({
       success: true,
-      count: advisories.length,
-      data: advisories
+      count: memAdvisories.length,
+      data: memAdvisories
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    const memAdvisories = MemoryStore.getAdvisories();
+    return res.json({ success: true, count: memAdvisories.length, data: memAdvisories });
   }
 });
 
@@ -32,19 +46,38 @@ router.post("/advisories", authenticate, requireRole("AUTHORITY", "ADMIN"), asyn
       return res.status(400).json({ success: false, message: "Title and message are required." });
     }
 
-    const advisory = new Advisory({
+    if (global.isMongoConnected) {
+      try {
+        const advisory = new Advisory({
+          title,
+          message,
+          severity: severity || "INFO",
+          affectedRoad: affectedRoad || "General Corridor",
+          issuedBy: `${req.user.name} (${req.user.department || "Traffic Authority"})`
+        });
+        const saved = await advisory.save();
+        return res.status(201).json({
+          success: true,
+          message: "Traffic advisory broadcast successfully.",
+          data: saved
+        });
+      } catch (e) {
+        // Fall back to memory store
+      }
+    }
+
+    const savedMem = MemoryStore.createAdvisory({
       title,
       message,
-      severity: severity || "INFO",
-      affectedRoad: affectedRoad || "General Corridor",
+      severity,
+      affectedRoad,
       issuedBy: `${req.user.name} (${req.user.department || "Traffic Authority"})`
     });
 
-    const saved = await advisory.save();
     return res.status(201).json({
       success: true,
       message: "Traffic advisory broadcast successfully.",
-      data: saved
+      data: savedMem
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -54,12 +87,20 @@ router.post("/advisories", authenticate, requireRole("AUTHORITY", "ADMIN"), asyn
 // PATCH /api/authority/advisories/:id/expire
 router.patch("/advisories/:id/expire", authenticate, requireRole("AUTHORITY", "ADMIN"), async (req, res) => {
   try {
-    const updated = await Advisory.findByIdAndUpdate(
-      req.params.id,
-      { status: "EXPIRED" },
-      { new: true }
-    );
-    return res.json({ success: true, data: updated });
+    if (global.isMongoConnected) {
+      try {
+        const updated = await Advisory.findByIdAndUpdate(
+          req.params.id,
+          { status: "EXPIRED" },
+          { new: true }
+        );
+        if (updated) return res.json({ success: true, data: updated });
+      } catch (e) {
+        // Fall back
+      }
+    }
+    const memUpdated = MemoryStore.expireAdvisory(req.params.id);
+    return res.json({ success: true, data: memUpdated });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -94,19 +135,27 @@ router.post("/green-corridor", authenticate, requireRole("AUTHORITY", "ADMIN"), 
 
     const route = routeData.routes[0];
     const normalDurationMin = Math.round(route.duration / 60);
-    // Green Corridor overrides traffic lights and clears corridor: 45% reduction in travel time!
     const expeditedDurationMin = Math.max(1, Math.round(normalDurationMin * 0.55));
     const distanceKm = Number((route.distance / 1000).toFixed(2));
 
-    // Automatically create a high-priority advisory to alert civilian drivers
-    const advisory = new Advisory({
+    const advisoryData = {
       title: `🚨 EMERGENCY GREEN CORRIDOR: ${vehicleType}`,
       message: `Emergency vehicle dispatch from ${fromLoc.displayName.split(",")[0]} to ${toLoc.displayName.split(",")[0]}. Traffic lights synchronized green. Commuters must yield right-of-way.`,
       severity: "CRITICAL",
       affectedRoad: "NH-44 & Central Arterials",
       issuedBy: `${req.user.name} (${req.user.badgeNumber || "Dispatch"})`
-    });
-    await advisory.save();
+    };
+
+    if (global.isMongoConnected) {
+      try {
+        const advisory = new Advisory(advisoryData);
+        await advisory.save();
+      } catch (e) {
+        MemoryStore.createAdvisory(advisoryData);
+      }
+    } else {
+      MemoryStore.createAdvisory(advisoryData);
+    }
 
     return res.json({
       success: true,
@@ -133,13 +182,27 @@ router.post("/green-corridor", authenticate, requireRole("AUTHORITY", "ADMIN"), 
 router.get("/enforcement-stats", authenticate, requireRole("AUTHORITY", "ADMIN"), async (req, res) => {
   try {
     const { city } = req.query;
-    const filter = { status: "ACTIVE" };
-    if (city && city.toLowerCase() !== "all" && city.toLowerCase() !== "national") {
-      filter.city = new RegExp(city.trim(), "i");
-    }
 
-    const activeIncidents = await Incident.find(filter);
-    const segments = await RoadSegment.find({});
+    let activeIncidents = [];
+    let segmentsCount = 10;
+
+    if (global.isMongoConnected) {
+      try {
+        const filter = { status: "ACTIVE" };
+        if (city && city.toLowerCase() !== "all" && city.toLowerCase() !== "national") {
+          filter.city = new RegExp(city.trim(), "i");
+        }
+        activeIncidents = await Incident.find(filter);
+        const segments = await RoadSegment.find({});
+        segmentsCount = segments.length;
+      } catch (e) {
+        activeIncidents = MemoryStore.getIncidents(city);
+        segmentsCount = MemoryStore.getAllRoads().length;
+      }
+    } else {
+      activeIncidents = MemoryStore.getIncidents(city);
+      segmentsCount = MemoryStore.getAllRoads().length;
+    }
 
     const highSeverityCount = activeIncidents.filter((i) => i.severity === "HIGH" || i.severity === "CRITICAL").length;
     const accidentsCount = activeIncidents.filter((i) => i.type === "ACCIDENT").length;
@@ -150,7 +213,7 @@ router.get("/enforcement-stats", authenticate, requireRole("AUTHORITY", "ADMIN")
       success: true,
       jurisdiction: city || "All Jurisdictions",
       stats: {
-        totalMonitoredCorridors: segments.length,
+        totalMonitoredCorridors: segmentsCount,
         activeHazards: activeIncidents.length,
         highSeverityHazards: highSeverityCount,
         accidentsReported: accidentsCount,

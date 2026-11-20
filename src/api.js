@@ -1,6 +1,7 @@
 /**
  * FlowSense Centralized API Client
  * Provides complete API support for Public, Authority (Police/Government), and Admin personas.
+ * Features built-in timeout handling to ensure smooth, non-blocking user experience.
  */
 
 const BASE_URL = import.meta.env.VITE_API_URL || "";
@@ -13,38 +14,60 @@ function getAuthHeaders() {
   };
 }
 
+async function apiFetch(endpoint, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    const data = await response.json().catch(() => ({
+      success: response.ok,
+      message: response.ok ? "OK" : `HTTP Error ${response.status}`
+    }));
+
+    return data;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    return {
+      success: false,
+      message: err.name === "AbortError" ? "Request timed out" : (err.message || "Network error")
+    };
+  }
+}
+
 // ==========================================
 // AUTHENTICATION APIs
 // ==========================================
 
 export async function loginUser(email, password, role) {
-  const response = await fetch(`${BASE_URL}/api/auth/login`, {
+  return apiFetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, role })
   });
-  return response.json();
 }
 
 export async function registerUser(userData) {
-  const response = await fetch(`${BASE_URL}/api/auth/register`, {
+  return apiFetch("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData)
   });
-  return response.json();
 }
 
 export async function fetchCurrentUser() {
-  const response = await fetch(`${BASE_URL}/api/auth/me`, {
+  return apiFetch("/api/auth/me", {
     headers: getAuthHeaders()
-  });
-  return response.json();
+  }, 4000);
 }
 
 export async function fetchDemoUsers() {
-  const response = await fetch(`${BASE_URL}/api/auth/demo-users`);
-  return response.json();
+  return apiFetch("/api/auth/demo-users");
 }
 
 // ==========================================
@@ -52,54 +75,43 @@ export async function fetchDemoUsers() {
 // ==========================================
 
 export async function searchRoutes(from, to) {
-  const response = await fetch(`${BASE_URL}/api/routes/search`, {
+  return apiFetch("/api/routes/search", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({ from, to })
-  });
-  return response.json();
+  }, 12000);
 }
 
 export async function fetchAnalytics(roadId) {
-  const response = await fetch(
-    `${BASE_URL}/api/routes/analytics/${encodeURIComponent(roadId)}`
-  );
-  return response.json();
+  return apiFetch(`/api/routes/analytics/${encodeURIComponent(roadId)}`);
 }
 
 export async function fetchIncidents(city) {
   const query = city && city !== "All" && city !== "All Cities" ? `?city=${encodeURIComponent(city)}` : "";
-  const response = await fetch(`${BASE_URL}/api/routes/incidents${query}`);
-  return response.json();
+  return apiFetch(`/api/routes/incidents${query}`, {}, 5000);
 }
 
 export async function reportIncident(data) {
-  const response = await fetch(`${BASE_URL}/api/routes/incidents`, {
+  return apiFetch("/api/routes/incidents", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
-  return response.json();
 }
 
 export async function resolveIncident(id) {
-  const response = await fetch(`${BASE_URL}/api/routes/incidents/${id}/resolve`, {
+  return apiFetch(`/api/routes/incidents/${id}/resolve`, {
     method: "PATCH",
     headers: getAuthHeaders()
   });
-  return response.json();
 }
 
 export async function fetchWeather(city = "Delhi") {
-  const response = await fetch(
-    `${BASE_URL}/api/routes/weather/${encodeURIComponent(city)}`
-  );
-  return response.json();
+  return apiFetch(`/api/routes/weather/${encodeURIComponent(city)}`, {}, 6000);
 }
 
 export async function fetchRoadSegments() {
-  const response = await fetch(`${BASE_URL}/api/routes/segments`);
-  return response.json();
+  return apiFetch("/api/routes/segments", {}, 5000);
 }
 
 // ==========================================
@@ -108,41 +120,36 @@ export async function fetchRoadSegments() {
 
 export async function fetchEnforcementStats(city) {
   const query = city && city !== "All" && city !== "All Cities" ? `?city=${encodeURIComponent(city)}` : "";
-  const response = await fetch(`${BASE_URL}/api/authority/enforcement-stats${query}`, {
+  return apiFetch(`/api/authority/enforcement-stats${query}`, {
     headers: getAuthHeaders()
-  });
-  return response.json();
+  }, 5000);
 }
 
 export async function fetchAdvisories() {
-  const response = await fetch(`${BASE_URL}/api/authority/advisories`);
-  return response.json();
+  return apiFetch("/api/authority/advisories", {}, 4000);
 }
 
 export async function createAdvisory(data) {
-  const response = await fetch(`${BASE_URL}/api/authority/advisories`, {
+  return apiFetch("/api/authority/advisories", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
-  return response.json();
 }
 
 export async function expireAdvisory(id) {
-  const response = await fetch(`${BASE_URL}/api/authority/advisories/${id}/expire`, {
+  return apiFetch(`/api/authority/advisories/${id}/expire`, {
     method: "PATCH",
     headers: getAuthHeaders()
   });
-  return response.json();
 }
 
 export async function dispatchGreenCorridor(data) {
-  const response = await fetch(`${BASE_URL}/api/authority/green-corridor`, {
+  return apiFetch("/api/authority/green-corridor", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
-  });
-  return response.json();
+  }, 10000);
 }
 
 // ==========================================
@@ -150,114 +157,101 @@ export async function dispatchGreenCorridor(data) {
 // ==========================================
 
 export async function fetchAdminStats() {
-  const response = await fetch(`${BASE_URL}/api/admin/stats`, {
+  return apiFetch("/api/admin/stats", {
     headers: getAuthHeaders()
-  });
-  return response.json();
+  }, 6000);
 }
 
 export async function fetchAdminUsers() {
-  const response = await fetch(`${BASE_URL}/api/admin/users`, {
+  return apiFetch("/api/admin/users", {
     headers: getAuthHeaders()
-  });
-  return response.json();
+  }, 5000);
 }
 
 export async function createAdminUser(userData) {
-  const response = await fetch(`${BASE_URL}/api/admin/users`, {
+  return apiFetch("/api/admin/users", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(userData)
   });
-  return response.json();
 }
 
 export async function updateUserRole(userId, newRole) {
-  const response = await fetch(`${BASE_URL}/api/admin/users/${userId}/role`, {
+  return apiFetch(`/api/admin/users/${userId}/role`, {
     method: "PATCH",
     headers: getAuthHeaders(),
     body: JSON.stringify({ role: newRole })
   });
-  return response.json();
 }
 
 export async function deleteAdminUser(userId) {
-  const response = await fetch(`${BASE_URL}/api/admin/users/${userId}`, {
+  return apiFetch(`/api/admin/users/${userId}`, {
     method: "DELETE",
     headers: getAuthHeaders()
   });
-  return response.json();
 }
 
 export async function fetchAdminSegments() {
-  const response = await fetch(`${BASE_URL}/api/admin/segments`, {
+  return apiFetch("/api/admin/segments", {
     headers: getAuthHeaders()
-  });
-  return response.json();
+  }, 5000);
 }
 
 export async function createRoadSegment(segmentData) {
-  const response = await fetch(`${BASE_URL}/api/admin/segments`, {
+  return apiFetch("/api/admin/segments", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(segmentData)
   });
-  return response.json();
 }
 
 export async function deleteRoadSegment(segmentId) {
-  const response = await fetch(`${BASE_URL}/api/admin/segments/${segmentId}`, {
+  return apiFetch(`/api/admin/segments/${segmentId}`, {
     method: "DELETE",
     headers: getAuthHeaders()
   });
-  return response.json();
 }
 
 export async function fetchAdminIncidents() {
-  const response = await fetch(`${BASE_URL}/api/admin/incidents`, {
+  return apiFetch("/api/admin/incidents", {
     headers: getAuthHeaders()
-  });
-  return response.json();
+  }, 5000);
 }
 
 export async function updateIncidentStatus(incidentId, status) {
-  const response = await fetch(`${BASE_URL}/api/admin/incidents/${incidentId}/status`, {
+  return apiFetch(`/api/admin/incidents/${incidentId}/status`, {
     method: "PATCH",
     headers: getAuthHeaders(),
     body: JSON.stringify({ status })
   });
-  return response.json();
 }
 
 export async function deleteIncident(incidentId) {
-  const response = await fetch(`${BASE_URL}/api/admin/incidents/${incidentId}`, {
+  return apiFetch(`/api/admin/incidents/${incidentId}`, {
     method: "DELETE",
     headers: getAuthHeaders()
   });
-  return response.json();
 }
 
 export async function reseedDatabase() {
-  const response = await fetch(`${BASE_URL}/api/admin/reseed`, {
+  return apiFetch("/api/admin/reseed", {
     method: "POST",
     headers: getAuthHeaders()
   });
-  return response.json();
 }
 
 export async function triggerBroadcastAlert(alertData) {
-  const response = await fetch(`${BASE_URL}/api/admin/broadcast-alert`, {
+  return apiFetch("/api/admin/broadcast-alert", {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(alertData)
   });
-  return response.json();
 }
 
 export async function checkBackendHealth() {
   try {
-    const response = await fetch(`${BASE_URL}/api/health`);
-    return response.ok;
+    const res = await apiFetch("/api/health", {}, 3000);
+    return res.success;
   } catch {
     return false;
   }
@@ -268,17 +262,15 @@ export async function checkBackendHealth() {
 // ==========================================
 
 export async function fetchHelplines() {
-  const response = await fetch(`${BASE_URL}/api/contact/helplines`);
-  return response.json();
+  return apiFetch("/api/contact/helplines", {}, 4000);
 }
 
 export async function submitContactMessage(data) {
-  const response = await fetch(`${BASE_URL}/api/contact`, {
+  return apiFetch("/api/contact", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
   });
-  return response.json();
 }
 
 // ==========================================
@@ -286,10 +278,9 @@ export async function submitContactMessage(data) {
 // ==========================================
 
 export async function sendChatMessage(message) {
-  const response = await fetch(`${BASE_URL}/api/chat`, {
+  return apiFetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message })
-  });
-  return response.json();
+  }, 7000);
 }

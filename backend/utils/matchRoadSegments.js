@@ -112,9 +112,19 @@ minimumMatchPercentage > 100
 throw new Error("Invalid road-matching configuration.");
 }
 
-const roadSegments = await RoadSegment.find({
-isActive: true
-}).lean();
+  let roadSegments = [];
+  if (global.isMongoConnected) {
+    try {
+      roadSegments = await RoadSegment.find({ isActive: true }).lean();
+    } catch (e) {
+      roadSegments = [];
+    }
+  }
+
+  if (!roadSegments || roadSegments.length === 0) {
+    const MemoryStore = require("./memoryStore");
+    roadSegments = MemoryStore.getAllRoads();
+  }
 
 const matches = [];
 

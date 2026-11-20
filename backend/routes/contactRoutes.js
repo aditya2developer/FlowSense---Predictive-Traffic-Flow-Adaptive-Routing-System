@@ -1,5 +1,6 @@
 const express = require("express");
 const ContactMessage = require("../models/ContactMessage");
+const MemoryStore = require("../utils/memoryStore");
 const { authenticate, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
@@ -123,21 +124,43 @@ router.post("/", async (req, res) => {
     else if (category === "SIGNAL_MALFUNCTION" || category === "POTHOLE_ROAD_GRIEVANCE") priority = "HIGH";
     else if (category === "GOVERNMENT_PARTNERSHIP" || category === "API_SMART_CITY_INTEGRATION") priority = "HIGH";
 
-    const contact = new ContactMessage({
-      ticketId,
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone ? phone.trim() : "",
-      state: state || "National / Pan-India",
-      city: city || "General",
-      category: category || "GENERAL_INQUIRY",
-      subject: subject.trim(),
-      message: message.trim(),
-      priority,
-      status: "OPEN"
-    });
+    let saved = null;
+    if (global.isMongoConnected) {
+      try {
+        const contact = new ContactMessage({
+          ticketId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone ? phone.trim() : "",
+          state: state || "National / Pan-India",
+          city: city || "General",
+          category: category || "GENERAL_INQUIRY",
+          subject: subject.trim(),
+          message: message.trim(),
+          priority,
+          status: "OPEN"
+        });
+        saved = await contact.save();
+      } catch (e) {
+        saved = null;
+      }
+    }
 
-    const saved = await contact.save();
+    if (!saved) {
+      saved = MemoryStore.addContactMessage({
+        ticketId,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone ? phone.trim() : "",
+        state: state || "National / Pan-India",
+        city: city || "General",
+        category: category || "GENERAL_INQUIRY",
+        subject: subject.trim(),
+        message: message.trim(),
+        priority,
+        status: "OPEN"
+      });
+    }
 
     return res.status(201).json({
       success: true,

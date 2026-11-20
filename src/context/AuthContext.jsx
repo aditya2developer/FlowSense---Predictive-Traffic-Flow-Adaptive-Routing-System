@@ -13,9 +13,9 @@ export function AuthProvider({ children }) {
     }
   });
   const [token, setToken] = useState(() => localStorage.getItem("flowsense_token"));
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!user);
 
-  // Validate session against real-time MongoDB backend on mount
+  // Re-verify session against backend in background without blocking UI
   useEffect(() => {
     if (token) {
       fetchCurrentUser()
@@ -23,13 +23,9 @@ export function AuthProvider({ children }) {
           if (res.success && res.user) {
             setUser(res.user);
             localStorage.setItem("flowsense_user", JSON.stringify(res.user));
-          } else {
-            logout();
           }
         })
-        .catch(() => {
-          // If offline or network error, keep local session if valid
-        })
+        .catch(() => {})
         .finally(() => setLoading(false));
     } else {
       setLoading(false);

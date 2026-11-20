@@ -1,6 +1,7 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const MemoryStore = require("../utils/memoryStore");
 const { authenticate, JWT_SECRET } = require("../middleware/auth");
 
 const router = express.Router();
@@ -34,7 +35,7 @@ const DEMO_ACCOUNTS = [
     password: "citizen",
     name: "Priya Verma",
     department: "Daily Commuter (Car / Transit)",
-    badgeNumber: "CITIZEN-PUNJAB",
+    badgeNumber: "CITIZEN-001",
     description: "Route prediction, stability comparison, community reporting, and commute alerts."
   }
 ];
@@ -61,8 +62,19 @@ router.post("/login", async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
 
-    // Check if user exists
-    let user = await User.findOne({ email: cleanEmail });
+    // Check if user exists (MongoDB or In-Memory fallback)
+    let user = null;
+    if (global.isMongoConnected) {
+      try {
+        user = await User.findOne({ email: cleanEmail });
+      } catch (e) {
+        user = null;
+      }
+    }
+
+    if (!user) {
+      user = MemoryStore.findUserByEmail(cleanEmail);
+    }
 
     // Auto-create demo accounts if they don't exist yet!
     if (!user) {
@@ -70,15 +82,23 @@ router.post("/login", async (req, res) => {
         (d) => d.email.toLowerCase() === cleanEmail
       );
       if (demoMatch && password === demoMatch.password) {
-        user = new User({
-          name: demoMatch.name,
-          email: demoMatch.email,
-          password: demoMatch.password,
-          role: demoMatch.role,
-          department: demoMatch.department,
-          badgeNumber: demoMatch.badgeNumber
-        });
-        await user.save();
+        if (global.isMongoConnected) {
+          try {
+            user = new User({
+              name: demoMatch.name,
+              email: demoMatch.email,
+              password: demoMatch.password,
+              role: demoMatch.role,
+              department: demoMatch.department,
+              badgeNumber: demoMatch.badgeNumber
+            });
+            await user.save();
+          } catch {
+            user = MemoryStore.findUserByEmail(cleanEmail);
+          }
+        } else {
+          user = MemoryStore.findUserByEmail(cleanEmail);
+        }
       } else {
         return res.status(401).json({
           success: false,
@@ -125,7 +145,7 @@ router.post("/login", async (req, res) => {
         role: user.role,
         department: user.department,
         badgeNumber: user.badgeNumber,
-        phone: user.phone
+        phone: user.phone || ""
       }
     });
   } catch (error) {
@@ -150,15 +170,61 @@ router.post("/register", async (req, res) => {
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
-    const existing = await User.findOne({ email: cleanEmail });
-    if (existing) {
+
+    if (global.isMongoConnected) {
+      try {
+        const existing = await User.findOne({ email: cleanEmail });
+        if (existing) {
+          return res.status(400).json({
+            success: false,
+            message: "An account with this email already exists."
+          });
+        }
+
+        const newUser = new User({
+          name: name.trim(),
+          email: cleanEmail,
+          password,
+          role: role && ["ADMIN", "AUTHORITY", "PUBLIC"].includes(role) ? role : "PUBLIC",
+          department: department || "Citizen Commuter",
+          badgeNumber: badgeNumber || ""
+        });
+        await newUser.save();
+
+        const token = jwt.sign(
+          { id: newUser._id, role: newUser.role, email: newUser.email },
+          JWT_SECRET,
+          { expiresIn: "7d" }
+        );
+
+        return res.status(201).json({
+          success: true,
+          message: "Registration successful!",
+          token,
+          user: {
+            id: newUser._id,
+            name: newUser.name,
+            email: newUser.email,
+            role: newUser.role,
+            department: newUser.department,
+            badgeNumber: newUser.badgeNumber
+          }
+        });
+      } catch (err) {
+        // Fall back to memory store if Mongo error
+      }
+    }
+
+    // Memory Store Fallback
+    const existingMem = MemoryStore.findUserByEmail(cleanEmail);
+    if (existingMem) {
       return res.status(400).json({
         success: false,
         message: "An account with this email already exists."
       });
     }
 
-    const newUser = new User({
+    const memUser = MemoryStore.createUser({
       name: name.trim(),
       email: cleanEmail,
       password,
@@ -167,14 +233,8 @@ router.post("/register", async (req, res) => {
       badgeNumber: badgeNumber || ""
     });
 
-    await newUser.save();
-
     const token = jwt.sign(
-      {
-        id: newUser._id,
-        role: newUser.role,
-        email: newUser.email
-      },
+      { id: memUser._id, role: memUser.role, email: memUser.email },
       JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -183,14 +243,7 @@ router.post("/register", async (req, res) => {
       success: true,
       message: "Registration successful!",
       token,
-      user: {
-        id: newUser._id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        department: newUser.department,
-        badgeNumber: newUser.badgeNumber
-      }
+      user: memUser
     });
   } catch (error) {
     console.error("Register error:", error);

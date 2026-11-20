@@ -852,23 +852,37 @@ router.post("/segments", async (req, res) => {
 
 router.get("/segments", async (req, res) => {
   try {
-    const segments = await RoadSegment.find({
-      isActive: true
-    }).sort({
-      roadName: 1
-    });
+    if (global.isMongoConnected) {
+      try {
+        const segments = await RoadSegment.find({
+          isActive: true
+        }).sort({
+          roadName: 1
+        });
+        if (segments && segments.length > 0) {
+          return res.json({
+            success: true,
+            count: segments.length,
+            data: segments
+          });
+        }
+      } catch (e) {}
+    }
 
+    const MemoryStore = require("../utils/memoryStore");
+    const segments = MemoryStore.getAllRoads();
     return res.json({
       success: true,
       count: segments.length,
       data: segments
     });
   } catch (error) {
-    console.error("Error fetching road segments:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch road segments"
+    const MemoryStore = require("../utils/memoryStore");
+    const segments = MemoryStore.getAllRoads();
+    return res.json({
+      success: true,
+      count: segments.length,
+      data: segments
     });
   }
 });
@@ -1143,23 +1157,46 @@ router.post('/incidents', async (req, res) => {
       city
     );
 
-    const incident = new Incident({
-      roadId: cleanRoadId,
-      roadName: cleanRoadName,
-      city: city.trim(),
-      type,
-      severity,
-      description: description.trim(),
-      landmark: landmark.trim(),
-      recommendation: driverRecommendation,
-      reportedBy: reportedBy.trim() || 'Citizen Commuter',
-      contactPhone: contactPhone.trim(),
-      location: location.trim() || cleanRoadName,
-      coordinates: coordinates || null,
-      status: 'ACTIVE'
-    });
+    let saved = null;
+    if (global.isMongoConnected) {
+      try {
+        const incident = new Incident({
+          roadId: cleanRoadId,
+          roadName: cleanRoadName,
+          city: city.trim(),
+          type,
+          severity,
+          description: description.trim(),
+          landmark: landmark.trim(),
+          recommendation: driverRecommendation,
+          reportedBy: reportedBy.trim() || 'Citizen Commuter',
+          contactPhone: contactPhone.trim(),
+          location: location.trim() || cleanRoadName,
+          coordinates: coordinates || null,
+          status: 'ACTIVE'
+        });
+        saved = await incident.save();
+      } catch (e) {
+        saved = null;
+      }
+    }
 
-    const saved = await incident.save();
+    if (!saved) {
+      const MemoryStore = require("../utils/memoryStore");
+      saved = MemoryStore.createIncident({
+        roadId: cleanRoadId,
+        roadName: cleanRoadName,
+        city: city.trim(),
+        type,
+        severity,
+        description: description.trim(),
+        landmark: landmark.trim(),
+        recommendation: driverRecommendation,
+        reportedBy: reportedBy.trim() || 'Citizen Commuter',
+        contactPhone: contactPhone.trim(),
+        location: location.trim() || cleanRoadName
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -1178,22 +1215,30 @@ router.post('/incidents', async (req, res) => {
 router.get('/incidents', async (req, res) => {
   try {
     const { city, status } = req.query;
-    const filter = {};
 
-    if (status) {
-      filter.status = status;
-    } else {
-      filter.status = 'ACTIVE';
+    if (global.isMongoConnected) {
+      try {
+        const filter = {};
+        if (status) {
+          filter.status = status;
+        } else {
+          filter.status = 'ACTIVE';
+        }
+        if (city && city.toLowerCase() !== 'all' && city.toLowerCase() !== 'all cities' && city.toLowerCase() !== 'national') {
+          filter.city = new RegExp(city.trim(), 'i');
+        }
+        const incidents = await Incident.find(filter).sort({ reportedAt: -1 }).limit(100);
+        return res.json({ success: true, count: incidents.length, data: incidents });
+      } catch (e) {}
     }
 
-    if (city && city.toLowerCase() !== 'all' && city.toLowerCase() !== 'all cities' && city.toLowerCase() !== 'national') {
-      filter.city = new RegExp(city.trim(), 'i');
-    }
-
-    const incidents = await Incident.find(filter).sort({ reportedAt: -1 }).limit(100);
-    return res.json({ success: true, count: incidents.length, data: incidents });
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.getIncidents(city);
+    return res.json({ success: true, count: memInc.length, data: memInc });
   } catch (error) {
-    return res.status(500).json({ success: false, message: 'Failed to fetch incidents.' });
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.getIncidents(req.query?.city);
+    return res.json({ success: true, count: memInc.length, data: memInc });
   }
 });
 
@@ -1201,32 +1246,61 @@ router.get('/incidents', async (req, res) => {
 router.get('/incidents/city/:city', async (req, res) => {
   try {
     const cityName = req.params.city;
-    const filter = { status: 'ACTIVE' };
-    if (cityName && cityName.toLowerCase() !== 'all') {
-      filter.city = new RegExp(cityName.trim(), 'i');
+    if (global.isMongoConnected) {
+      try {
+        const filter = { status: 'ACTIVE' };
+        if (cityName && cityName.toLowerCase() !== 'all') {
+          filter.city = new RegExp(cityName.trim(), 'i');
+        }
+        const incidents = await Incident.find(filter).sort({ reportedAt: -1 });
+        return res.json({ success: true, count: incidents.length, data: incidents });
+      } catch (e) {}
     }
-    const incidents = await Incident.find(filter).sort({ reportedAt: -1 });
-    return res.json({ success: true, count: incidents.length, data: incidents });
+
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.getIncidents(cityName);
+    return res.json({ success: true, count: memInc.length, data: memInc });
   } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.getIncidents(req.params.city);
+    return res.json({ success: true, count: memInc.length, data: memInc });
   }
 });
 
 // INCIDENTS - GET by roadId
 router.get('/incidents/road/:roadId', async (req, res) => {
   try {
-    const incidents = await Incident.find({ roadId: req.params.roadId }).sort({ reportedAt: -1 });
-    return res.json({ success: true, count: incidents.length, data: incidents });
-  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to fetch road incidents.' }); }
+    if (global.isMongoConnected) {
+      try {
+        const incidents = await Incident.find({ roadId: req.params.roadId }).sort({ reportedAt: -1 });
+        return res.json({ success: true, count: incidents.length, data: incidents });
+      } catch (e) {}
+    }
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.getIncidents().filter(i => i.roadId === req.params.roadId);
+    return res.json({ success: true, count: memInc.length, data: memInc });
+  } catch (error) {
+    return res.json({ success: true, count: 0, data: [] });
+  }
 });
 
 // INCIDENTS - PATCH resolve
 router.patch('/incidents/:id/resolve', async (req, res) => {
   try {
-    const incident = await Incident.findByIdAndUpdate(req.params.id, { status: 'RESOLVED' }, { new: true });
-    if (!incident) return res.status(404).json({ success: false, message: 'Incident not found.' });
-    return res.json({ success: true, message: 'Incident resolved.', data: incident });
-  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to resolve incident.' }); }
+    if (global.isMongoConnected) {
+      try {
+        const incident = await Incident.findByIdAndUpdate(req.params.id, { status: 'RESOLVED' }, { new: true });
+        if (incident) return res.json({ success: true, message: 'Incident resolved.', data: incident });
+      } catch (e) {}
+    }
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.updateIncidentStatus(req.params.id, 'RESOLVED');
+    return res.json({ success: true, message: 'Incident resolved.', data: memInc });
+  } catch (error) {
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.updateIncidentStatus(req.params.id, 'RESOLVED');
+    return res.json({ success: true, message: 'Incident resolved.', data: memInc });
+  }
 });
 
 // WEATHER - GET Real-Time API for Any City (Open-Meteo live meteorological grid)
