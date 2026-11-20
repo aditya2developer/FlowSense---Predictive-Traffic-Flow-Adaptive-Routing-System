@@ -1,4 +1,4 @@
-function RouteCard({ route }) {
+function RouteCard({ route, isSelected = false, onSelect = null }) {
   const congestion = route.congestion?.toUpperCase() || "UNKNOWN";
 
   const congestionClass = {
@@ -8,14 +8,9 @@ function RouteCard({ route }) {
     UNKNOWN: "unknown"
   }[congestion];
 
-  const hasPredictedTime =
-    Number.isFinite(route.predictedTime);
-
-  const hasCurrentTime =
-    Number.isFinite(route.currentTime);
-
-  const hasStabilityScore =
-    Number.isFinite(route.stabilityScore);
+  const hasPredictedTime = Number.isFinite(route.predictedTime);
+  const hasCurrentTime = Number.isFinite(route.currentTime);
+  const hasStabilityScore = Number.isFinite(route.stabilityScore);
 
   const timeDifference =
     hasPredictedTime && hasCurrentTime
@@ -23,9 +18,7 @@ function RouteCard({ route }) {
       : null;
 
   const prediction = route.trafficPrediction;
-
-  const predictionSource =
-    prediction?.predictionSource || null;
+  const predictionSource = prediction?.predictionSource || null;
 
   const sourceLabels = {
     EXACT_DAY_AND_HOUR: "Exact day and hour",
@@ -34,11 +27,21 @@ function RouteCard({ route }) {
     ROAD_HISTORY_FALLBACK: "General road history"
   };
 
+  const stabilityColor =
+    !hasStabilityScore
+      ? "#94a3b8"
+      : route.stabilityScore >= 75
+      ? "#16a34a"
+      : route.stabilityScore >= 50
+      ? "#f59e0b"
+      : "#ef4444";
+
   return (
-    <div
-      className={`route-card ${
-        route.recommended ? "recommended" : ""
+    <article
+      className={`route-card ${route.recommended ? "recommended" : ""} ${
+        isSelected ? "selected-route" : ""
       }`}
+      onClick={() => onSelect && onSelect(route.id)}
     >
       <div className="route-header">
         <div>
@@ -46,19 +49,19 @@ function RouteCard({ route }) {
             {route.recommended && "⭐ "}
             {route.name || "Route"}
           </h3>
-
-          {route.roadName && (
-            <p className="road-name">
-              {route.roadName}
-            </p>
-          )}
+          {route.roadName && <p className="road-name">Via {route.roadName}</p>}
         </div>
 
-        {route.recommended && (
-          <span className="recommended-badge">
-            Recommended
-          </span>
-        )}
+        <div className="badge-group">
+          {route.recommended && (
+            <span className="recommended-badge">Recommended</span>
+          )}
+          {route.activeIncidents && route.activeIncidents.length > 0 && (
+            <span className="incident-alert-badge" title={`${route.activeIncidents.length} active incident(s) reported`}>
+              ⚠️ {route.activeIncidents.length} Incident
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="route-details">
@@ -67,27 +70,22 @@ function RouteCard({ route }) {
           <strong>
             {Number.isFinite(route.distance)
               ? `${route.distance.toFixed(2)} km`
-              : "Unavailable"}
+              : "—"}
           </strong>
         </div>
 
         <div>
-          <span>Current estimate</span>
+          <span>Current Est.</span>
           <strong>
-            {hasCurrentTime
-              ? `${route.currentTime} min`
-              : "Unavailable"}
+            {hasCurrentTime ? `${route.currentTime} min` : "—"}
           </strong>
         </div>
 
         <div>
-          <span>Predicted estimate</span>
+          <span>Predicted</span>
           <strong>
-            {hasPredictedTime
-              ? `${route.predictedTime} min`
-              : "Unavailable"}
+            {hasPredictedTime ? `${route.predictedTime} min` : "—"}
           </strong>
-
           {timeDifference !== null && (
             <small
               className={
@@ -99,31 +97,26 @@ function RouteCard({ route }) {
               }
             >
               {timeDifference > 0
-                ? `+${timeDifference} min`
+                ? `+${timeDifference} min delay`
                 : timeDifference < 0
-                ? `${timeDifference} min`
-                : "No change"}
+                ? `${timeDifference} min faster`
+                : "Consistent"}
             </small>
           )}
         </div>
 
         <div>
-          <span>Congestion</span>
-          <strong
-            className={`congestion-badge ${congestionClass}`}
-          >
+          <span>Congestion Risk</span>
+          <strong className={`congestion-badge ${congestionClass}`}>
             {congestion}
           </strong>
         </div>
 
         <div>
-          <span>Stability</span>
-          <strong>
-            {hasStabilityScore
-              ? `${route.stabilityScore}/100`
-              : "Unavailable"}
+          <span>Stability Score</span>
+          <strong style={{ color: stabilityColor }}>
+            {hasStabilityScore ? `${route.stabilityScore}/100` : "N/A"}
           </strong>
-
           {hasStabilityScore && (
             <div
               className="stability-track"
@@ -131,18 +124,13 @@ function RouteCard({ route }) {
               aria-label="Route stability"
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-valuenow={Math.min(
-                100,
-                Math.max(0, route.stabilityScore)
-              )}
+              aria-valuenow={route.stabilityScore}
             >
               <div
                 className="stability-fill"
                 style={{
-                  width: `${Math.min(
-                    100,
-                    Math.max(0, route.stabilityScore)
-                  )}%`
+                  width: `${Math.min(100, Math.max(0, route.stabilityScore))}%`,
+                  backgroundColor: stabilityColor
                 }}
               />
             </div>
@@ -150,71 +138,74 @@ function RouteCard({ route }) {
         </div>
       </div>
 
+      {/* RATIONALE & EXPLANATION */}
+      {route.explanation && (
+        <div className="route-explanation">
+          <span className="exp-icon">💡</span>
+          <p>{route.explanation}</p>
+        </div>
+      )}
+
+      {/* WHAT YOU SHOULD DO - ACTIONABLE COMMUTER GUIDANCE */}
+      <div className="commuter-action-recommendation">
+        <span className="rec-bulb">🧭</span>
+        <div>
+          <strong>What You Should Do (Recommended Action):</strong>
+          <p>
+            {route.activeIncidents && route.activeIncidents.length > 0 && route.activeIncidents[0].recommendation
+              ? route.activeIncidents[0].recommendation
+              : congestion === "HIGH"
+              ? "High congestion risk detected along this corridor. Maintain safe braking distance; consider delaying departure by 25 mins or taking an alternate bypass."
+              : route.stabilityScore >= 75
+              ? "Optimal high-stability corridor. Historical flow is steady with minimal speed volatility. Recommended for time-critical arrival."
+              : "Moderate traffic flow. Watch for merging friction at highway interchanges and follow posted lane signs."}
+          </p>
+        </div>
+      </div>
+
+      {/* HISTORICAL TRAFFIC DETAILS */}
       {prediction && (
-        <div className="traffic-summary">
-          <h4>Historical traffic summary</h4>
-
-          {Number.isFinite(prediction.predictedVehicleCount) && (
-            <p>
-              Average vehicle count:{" "}
-              <strong>
-                {prediction.predictedVehicleCount}
-              </strong>
-            </p>
-          )}
-
-          {Number.isFinite(prediction.predictedSpeed) && (
-            <p>
-              Historical average speed:{" "}
-              <strong>
-                {prediction.predictedSpeed}
-              </strong>
-            </p>
-          )}
-
-          {Number.isFinite(prediction.historicalRecords) && (
-            <p>
-              Records used:{" "}
-              <strong>
-                {prediction.historicalRecords}
-              </strong>
-            </p>
-          )}
-
-          {predictionSource && (
-            <p>
-              Prediction source:{" "}
-              <strong>
-                {sourceLabels[predictionSource] ||
-                  predictionSource}
-              </strong>
-            </p>
-          )}
-
-          {prediction.dataQuality && (
-            <p>
-              Data quality:{" "}
-              <strong>
-                {prediction.dataQuality}
-              </strong>
-            </p>
-          )}
-
-          {prediction.historicalRecords < 5 && (
-            <p className="data-warning">
-              Limited historical data. Treat this estimate
-              as experimental.
-            </p>
-          )}
-        </div>
+        <details className="traffic-summary-accordion">
+          <summary>View Historical Traffic Details</summary>
+          <div className="traffic-summary-content">
+            {Number.isFinite(prediction.predictedVehicleCount) && (
+              <p>
+                Average vehicle count:{" "}
+                <strong>{prediction.predictedVehicleCount} vehicles</strong>
+              </p>
+            )}
+            {Number.isFinite(prediction.predictedSpeed) && (
+              <p>
+                Historical average speed:{" "}
+                <strong>{prediction.predictedSpeed} km/h</strong>
+              </p>
+            )}
+            {Number.isFinite(prediction.historicalRecords) && (
+              <p>
+                Records analyzed:{" "}
+                <strong>{prediction.historicalRecords} observations</strong>
+              </p>
+            )}
+            {predictionSource && (
+              <p>
+                Prediction source:{" "}
+                <strong>{sourceLabels[predictionSource] || predictionSource}</strong>
+              </p>
+            )}
+            {prediction.dataQuality && (
+              <p>
+                Data quality confidence:{" "}
+                <span className={`confidence-pill conf-${prediction.dataQuality.toLowerCase()}`}>
+                  {prediction.dataQuality}
+                </span>
+              </p>
+            )}
+          </div>
+        </details>
       )}
 
-      {route.message && (
-        <div className="route-message">
-          {route.message}
-        </div>
-      )}
-    </div>
+      {route.message && <div className="route-message">{route.message}</div>}
+    </article>
   );
 }
 

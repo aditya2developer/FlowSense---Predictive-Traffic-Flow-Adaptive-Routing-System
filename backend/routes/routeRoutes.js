@@ -6,6 +6,10 @@ const predictTraffic = require("../utils/predictTraffic");
 const calculateStabilityScore = require("../utils/calculateStabilityScore");
 const RoadSegment = require("../models/RoadSegment");
 const matchRoadSegments = require("../utils/matchRoadSegments");
+const Incident = require('../models/Incident');
+const Weather = require('../models/Weather');
+const { fetchRealTimeWeather } = require("../utils/liveWeather");
+const generateRecommendations = require("../utils/recommendationEngine");
 
 const router = express.Router();
 
@@ -145,8 +149,16 @@ router.post("/search", async (req, res) => {
 
       const roadId = matchedRoadId;
 
-      // 7. FETCH HISTORICAL TRAFFIC PREDICTION
+      // 7. FETCH HISTORICAL TRAFFIC PREDICTION & ACTIVE INCIDENTS
       let prediction = null;
+      let activeIncidents = [];
+      let latestWeather = null;
+
+      try {
+        latestWeather = await Weather.findOne({}).sort({ timestamp: -1 }).lean();
+      } catch (err) {
+        console.warn("Weather lookup skipped:", err.message);
+      }
 
       if (roadId) {
         try {
@@ -160,6 +172,12 @@ router.post("/search", async (req, res) => {
             `Traffic prediction failed for ${roadId}:`,
             predictionError
           );
+        }
+
+        try {
+          activeIncidents = await Incident.find({ roadId, status: "ACTIVE" }).lean();
+        } catch (incError) {
+          console.warn("Incident lookup skipped:", incError.message);
         }
       }
 
@@ -193,16 +211,6 @@ router.post("/search", async (req, res) => {
       if (hasHistoricalPrediction) {
         congestion = prediction.predictedCongestion;
 
-        /*
-         * Prototype travel-time calculation.
-         *
-         * Assumes a baseline speed of 40 km/h.
-         * This is NOT a live traffic measurement.
-         *
-         * Replace this assumption with a validated
-         * route-specific baseline when suitable data
-         * becomes available.
-         */
         const baselineSpeed = 40;
 
         predictedTime = Math.max(
@@ -216,14 +224,13 @@ router.post("/search", async (req, res) => {
         const calculatedScore = calculateStabilityScore({
           currentTime,
           predictedTime,
-
           highCongestionPercentage:
             Number(prediction.highCongestionPercentage) || 0,
-
           averageSpeed: prediction.predictedSpeed,
-
           speedVariability:
-            Number(prediction.speedVariability) || 0
+            Number(prediction.speedVariability) || 0,
+          incidents: activeIncidents,
+          weather: latestWeather
         });
 
         if (
@@ -255,6 +262,19 @@ router.post("/search", async (req, res) => {
       );
       console.log("Stability score:", stabilityScore);
 
+      // Generate explainability rationale
+      let explanation = "";
+      if (hasHistoricalPrediction) {
+        explanation = `Historical patterns for ${dayOfWeek} at ${currentHour}:00 show ${prediction.predictedCongestion} congestion risk (avg speed ${prediction.predictedSpeed} km/h).`;
+        if (activeIncidents.length > 0) {
+          explanation += ` ⚠️ Note: ${activeIncidents.length} active incident(s) reported on this segment.`;
+        }
+      } else if (roadId) {
+        explanation = "Road segment recognized, but insufficient historical data is available for accurate prediction.";
+      } else {
+        explanation = "Route mapped via OSRM. No registered road segment matched for historical memory.";
+      }
+
       // 9. INCLUDE VALID ROUTES IN THE RESPONSE
       routes.push({
         id: index + 1,
@@ -264,7 +284,7 @@ router.post("/search", async (req, res) => {
         roadId: roadId || null,
 
         roadName:
-          matchedRoadName || "No registered road match",
+          matchedRoadName || "General Road Corridor",
 
         distance: distanceKm,
 
@@ -284,10 +304,16 @@ router.post("/search", async (req, res) => {
         recommended: false,
 
         message: hasHistoricalPrediction
-          ? "Travel-time estimate uses historical traffic records and a prototype calculation."
+          ? "Travel-time estimate powered by FlowSense Traffic Memory Engine."
           : roadId
             ? "Road matched, but a valid historical prediction is unavailable."
             : "Route found. No registered road segment matched, so historical traffic prediction is unavailable.",
+
+        explanation,
+
+        activeIncidents,
+
+        weather: latestWeather,
 
         geometry: route.geometry,
 
@@ -1087,6 +1113,143 @@ router.get("/analytics/:roadId", async (req, res) => {
       message: "Failed to generate traffic analytics."
     });
   }
+});
+
+// INCIDENTS - POST /incidents (Allows anyone to report any hazard with AI recommendations)
+router.post('/incidents', async (req, res) => {
+  try {
+    const {
+      roadId,
+      roadName,
+      city = 'General',
+      type = 'ACCIDENT',
+      severity = 'MEDIUM',
+      description = '',
+      landmark = '',
+      reportedBy = 'Citizen Commuter',
+      contactPhone = '',
+      location = '',
+      coordinates
+    } = req.body || {};
+
+    const cleanRoadId = roadId && roadId.trim() ? roadId.trim() : `HAZ_${Date.now().toString(36).toUpperCase()}`;
+    const cleanRoadName = roadName && roadName.trim() ? roadName.trim() : (location || `${city} Road Hazard`);
+
+    // Generate intelligent AI recommendations for both Commuter safety & Police response
+    const { driverRecommendation, policeActionPlan } = generateRecommendations(
+      type,
+      severity,
+      cleanRoadName,
+      city
+    );
+
+    const incident = new Incident({
+      roadId: cleanRoadId,
+      roadName: cleanRoadName,
+      city: city.trim(),
+      type,
+      severity,
+      description: description.trim(),
+      landmark: landmark.trim(),
+      recommendation: driverRecommendation,
+      reportedBy: reportedBy.trim() || 'Citizen Commuter',
+      contactPhone: contactPhone.trim(),
+      location: location.trim() || cleanRoadName,
+      coordinates: coordinates || null,
+      status: 'ACTIVE'
+    });
+
+    const saved = await incident.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Hazard reported and saved to FlowSense real-time database.',
+      data: saved,
+      driverRecommendation,
+      policeActionPlan
+    });
+  } catch (error) {
+    console.error('Incident save error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to save hazard report: ' + error.message });
+  }
+});
+
+// INCIDENTS - GET all active (Supports ?city=Delhi & ?status=ACTIVE)
+router.get('/incidents', async (req, res) => {
+  try {
+    const { city, status } = req.query;
+    const filter = {};
+
+    if (status) {
+      filter.status = status;
+    } else {
+      filter.status = 'ACTIVE';
+    }
+
+    if (city && city.toLowerCase() !== 'all' && city.toLowerCase() !== 'all cities' && city.toLowerCase() !== 'national') {
+      filter.city = new RegExp(city.trim(), 'i');
+    }
+
+    const incidents = await Incident.find(filter).sort({ reportedAt: -1 }).limit(100);
+    return res.json({ success: true, count: incidents.length, data: incidents });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch incidents.' });
+  }
+});
+
+// INCIDENTS - GET by city
+router.get('/incidents/city/:city', async (req, res) => {
+  try {
+    const cityName = req.params.city;
+    const filter = { status: 'ACTIVE' };
+    if (cityName && cityName.toLowerCase() !== 'all') {
+      filter.city = new RegExp(cityName.trim(), 'i');
+    }
+    const incidents = await Incident.find(filter).sort({ reportedAt: -1 });
+    return res.json({ success: true, count: incidents.length, data: incidents });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// INCIDENTS - GET by roadId
+router.get('/incidents/road/:roadId', async (req, res) => {
+  try {
+    const incidents = await Incident.find({ roadId: req.params.roadId }).sort({ reportedAt: -1 });
+    return res.json({ success: true, count: incidents.length, data: incidents });
+  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to fetch road incidents.' }); }
+});
+
+// INCIDENTS - PATCH resolve
+router.patch('/incidents/:id/resolve', async (req, res) => {
+  try {
+    const incident = await Incident.findByIdAndUpdate(req.params.id, { status: 'RESOLVED' }, { new: true });
+    if (!incident) return res.status(404).json({ success: false, message: 'Incident not found.' });
+    return res.json({ success: true, message: 'Incident resolved.', data: incident });
+  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to resolve incident.' }); }
+});
+
+// WEATHER - GET Real-Time API for Any City (Open-Meteo live meteorological grid)
+router.get('/weather/:city', async (req, res) => {
+  try {
+    const cityName = req.params.city || 'Delhi';
+    const liveWeather = await fetchRealTimeWeather(cityName);
+    return res.json({ success: true, data: liveWeather });
+  } catch (error) {
+    console.error('Weather error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch real-time weather.' });
+  }
+});
+
+// WEATHER - POST
+router.post('/weather', async (req, res) => {
+  try {
+    const { location, city, temperature, humidity, rainfall, windSpeed, condition, visibility } = req.body;
+    if (!location) return res.status(400).json({ success: false, message: 'location is required.' });
+    const weather = new Weather({ location, city, temperature, humidity, rainfall, windSpeed, condition, visibility });
+    const saved = await weather.save();
+    return res.status(201).json({ success: true, data: saved });
+  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to save weather.' }); }
 });
 
 module.exports = router;

@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
 import TrafficChart from "./TrafficChart";
-import TrafficHeatmap from "./TrafficHeatMap";
+import TrafficHeatmap from "./TrafficHeatmap";
+import { fetchAnalytics as apiFetchAnalytics } from "../api";
+
+const ROAD_OPTIONS = [
+  { id: "RD001", name: "GT Road (RD001)" },
+  { id: "RD002", name: "Nakodar Road (RD002)" },
+  { id: "RD003", name: "Phagwara Road (RD003)" },
+  { id: "RD004", name: "Jalandhar-Amritsar Highway (RD004)" },
+  { id: "RD005", name: "Bus Stand Road (RD005)" }
+];
+
 function TrafficAnalytics() {
   const [roadId, setRoadId] = useState("RD001");
   const [analytics, setAnalytics] = useState([]);
@@ -8,12 +18,11 @@ function TrafficAnalytics() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Fetch analytics data from the backend
-  async function fetchAnalytics() {
-    const trimmedRoadId = roadId.trim();
+  async function loadAnalytics(targetRoadId = roadId) {
+    const trimmedRoadId = (targetRoadId || "").trim();
 
     if (!trimmedRoadId) {
-      setError("Please enter a valid Road ID.");
+      setError("Please enter or select a valid Road ID.");
       setAnalytics([]);
       return;
     }
@@ -22,18 +31,10 @@ function TrafficAnalytics() {
     setError("");
 
     try {
-      const response = await fetch(
-        `http://localhost:5000/api/routes/analytics/${encodeURIComponent(
-          trimmedRoadId
-        )}`
-      );
+      const data = await apiFetchAnalytics(trimmedRoadId);
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message || "Failed to load traffic analytics."
-        );
+      if (!data.success) {
+        throw new Error(data.message || "Failed to load traffic analytics.");
       }
 
       setAnalytics(Array.isArray(data.data) ? data.data : []);
@@ -49,115 +50,107 @@ function TrafficAnalytics() {
   const filteredAnalytics =
     selectedDay === "ALL"
       ? analytics
-      : analytics.filter(
-          (item) => item.dayOfWeek === selectedDay
-        );
+      : analytics.filter((item) => item.dayOfWeek === selectedDay);
 
-  // Load analytics when the component first appears
+  // Load analytics when the component mounts
   useEffect(() => {
-    fetchAnalytics();
+    loadAnalytics("RD001");
   }, []);
 
   return (
-    <section className="traffic-analytics">
-      <h2>Traffic Memory Analytics</h2>
+    <section className="traffic-analytics-container">
+      <div className="analytics-header">
+        <div>
+          <h2>📊 Traffic Memory Engine Analytics</h2>
+          <p>
+            Aggregated historical traffic patterns, speed variations, and congestion profiles stored in MongoDB.
+          </p>
+        </div>
+      </div>
 
-      <p>
-        Explore historical traffic patterns stored in the FlowSense database.
-      </p>
+      {/* SEARCH / FILTER CONTROLS */}
+      <div className="analytics-controls-bar">
+        <div className="control-item">
+          <label htmlFor="roadSelect">Select Road Segment:</label>
+          <select
+            id="roadSelect"
+            value={roadId}
+            onChange={(e) => {
+              setRoadId(e.target.value);
+              loadAnalytics(e.target.value);
+            }}
+          >
+            {ROAD_OPTIONS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      {/* Search controls */}
-      <div className="analytics-controls">
-        <label htmlFor="roadId">Road ID</label>
-
-        <input
-          id="roadId"
-          type="text"
-          value={roadId}
-          onChange={(event) => setRoadId(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              fetchAnalytics();
-            }
-          }}
-          placeholder="Enter road ID"
-        />
+        <div className="control-item">
+          <label htmlFor="dayFilter">Filter by Day:</label>
+          <select
+            id="dayFilter"
+            value={selectedDay}
+            onChange={(event) => setSelectedDay(event.target.value)}
+          >
+            <option value="ALL">All Days of the Week</option>
+            <option value="Monday">Monday</option>
+            <option value="Tuesday">Tuesday</option>
+            <option value="Wednesday">Wednesday</option>
+            <option value="Thursday">Thursday</option>
+            <option value="Friday">Friday</option>
+            <option value="Saturday">Saturday</option>
+            <option value="Sunday">Sunday</option>
+          </select>
+        </div>
 
         <button
           type="button"
-          onClick={fetchAnalytics}
+          className="refresh-analytics-btn"
+          onClick={() => loadAnalytics(roadId)}
           disabled={loading || !roadId.trim()}
         >
-          {loading ? "Loading..." : "Load Analytics"}
+          {loading ? "Refreshing..." : "🔄 Refresh"}
         </button>
-
-        <label htmlFor="dayFilter">Day</label>
-
-        <select
-          id="dayFilter"
-          value={selectedDay}
-          onChange={(event) => setSelectedDay(event.target.value)}
-        >
-          <option value="ALL">All Days</option>
-          <option value="Monday">Monday</option>
-          <option value="Tuesday">Tuesday</option>
-          <option value="Wednesday">Wednesday</option>
-          <option value="Thursday">Thursday</option>
-          <option value="Friday">Friday</option>
-          <option value="Saturday">Saturday</option>
-          <option value="Sunday">Sunday</option>
-        </select>
       </div>
 
       {/* Loading state */}
       {loading && (
-        <p className="analytics-loading">
-          Loading traffic analytics...
-        </p>
+        <div className="analytics-status-msg">
+          <span className="btn-spinner" /> Loading traffic analytics...
+        </div>
       )}
 
       {/* Error state */}
       {error && (
-        <p className="analytics-error" role="alert">
+        <div className="analytics-error-banner" role="alert">
           {error}
-        </p>
+        </div>
       )}
 
       {/* Empty database result */}
       {!loading && !error && analytics.length === 0 && (
-        <p>
-          No historical traffic data available for this road.
-        </p>
+        <div className="analytics-empty-state">
+          <p>No historical traffic data found for this road. Run <code>node backend/seedData.js</code> to populate data.</p>
+        </div>
       )}
 
-      {/* No records for the selected day */}
-      {!loading &&
-        !error &&
-        analytics.length > 0 &&
-        filteredAnalytics.length === 0 && (
-          <p>
-            No traffic records found for {selectedDay}.
-            Try selecting another day.
-          </p>
-        )}
-
       {/* Traffic chart */}
-      {!loading &&
-        !error &&
-        filteredAnalytics.length > 0 && (
-          <TrafficChart analytics={filteredAnalytics} />
-        )}
+      {!loading && !error && filteredAnalytics.length > 0 && (
+        <TrafficChart analytics={filteredAnalytics} />
+      )}
 
-        {!loading &&
-            !error &&
-            filteredAnalytics.length > 0 && (
-        <TrafficHeatmap analytics={filteredAnalytics} />
-        )}
+      {/* Heatmap */}
+      {!loading && !error && analytics.length > 0 && (
+        <TrafficHeatmap analytics={analytics} />
+      )}
 
       {/* Traffic analytics table */}
-      {!loading &&
-        !error &&
-        filteredAnalytics.length > 0 && (
+      {!loading && !error && filteredAnalytics.length > 0 && (
+        <div className="analytics-table-section">
+          <h3>Historical Hourly Observations</h3>
           <div className="analytics-table-wrapper">
             <table className="analytics-table">
               <thead>
@@ -166,26 +159,18 @@ function TrafficAnalytics() {
                   <th>Hour</th>
                   <th>Avg. Vehicles</th>
                   <th>Avg. Speed</th>
-                  <th>High Congestion</th>
-                  <th>Records</th>
+                  <th>High Congestion %</th>
+                  <th>Total Readings</th>
                 </tr>
               </thead>
 
               <tbody>
                 {filteredAnalytics.map((item) => (
-                  <tr
-                    key={`${item.dayOfWeek}-${item.hour}`}
-                  >
+                  <tr key={`${item.dayOfWeek}-${item.hour}`}>
                     <td>{item.dayOfWeek}</td>
-
-                    <td>
-                      {String(item.hour).padStart(2, "0")}:00
-                    </td>
-
-                    <td>{item.averageVehicleCount}</td>
-
+                    <td>{String(item.hour).padStart(2, "0")}:00</td>
+                    <td><strong>{item.averageVehicleCount}</strong></td>
                     <td>{item.averageSpeed} km/h</td>
-
                     <td>
                       <span
                         className={`congestion-indicator ${
@@ -199,14 +184,14 @@ function TrafficAnalytics() {
                         {item.highCongestionPercentage}%
                       </span>
                     </td>
-
                     <td>{item.totalRecords}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
+        </div>
+      )}
     </section>
   );
 }

@@ -125,19 +125,7 @@ async function predictTraffic(roadId, dayOfWeek, hour) {
     0
   );
 
-  console.log( {
-  totalWeight,
-  weightedVehicleTotal: weightedRecords.reduce(
-    (sum, record) =>
-      sum + record.vehicleCount * record.timeWeight,
-    0
-  ),
-  weightedSpeedTotal: weightedRecords.reduce(
-    (sum, record) =>
-      sum + record.averageSpeed * record.timeWeight,
-    0
-  )
-});
+
 
   if (totalWeight <= 0) {
     return null;

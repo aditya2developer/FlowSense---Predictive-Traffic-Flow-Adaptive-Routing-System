@@ -4,218 +4,173 @@ import {
   Marker,
   Popup,
   Polyline,
+  CircleMarker,
   useMap
 } from "react-leaflet";
-
 import { useEffect } from "react";
-
 import "leaflet/dist/leaflet.css";
 
+const ROUTE_COLORS = [
+  "#16a34a", // Recommended or primary
+  "#2563eb", // Route B
+  "#f59e0b", // Route C
+  "#8b5cf6", // Route D
+  "#ec4899"  // Route E
+];
 
 function MapController({ routes, locations }) {
-
   const map = useMap();
 
   useEffect(() => {
-
-    // Give Leaflet time to calculate the
-    // actual container size.
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       map.invalidateSize();
-    }, 100);
-
+    }, 150);
+    return () => clearTimeout(timer);
   }, [map]);
 
-
   useEffect(() => {
-
-    if (!locations) {
-      return;
-    }
+    if (!locations) return;
 
     const points = [];
 
-    // Start point
-    points.push([
-      locations.from.latitude,
-      locations.from.longitude
-    ]);
-
-    // Destination
-    points.push([
-      locations.to.latitude,
-      locations.to.longitude
-    ]);
-
-
-    // Route points
-    routes.forEach((route) => {
-
-      if (
-        route.geometry &&
-        route.geometry.coordinates
-      ) {
-
-        route.geometry.coordinates.forEach(
-          ([longitude, latitude]) => {
-
-            points.push([
-              latitude,
-              longitude
-            ]);
-
-          }
-        );
-
-      }
-
-    });
-
-
-    if (points.length > 1) {
-
-      map.fitBounds(points, {
-        padding: [40, 40]
-      });
-
+    if (locations.from && Number.isFinite(locations.from.latitude)) {
+      points.push([locations.from.latitude, locations.from.longitude]);
     }
 
-  }, [map, routes, locations]);
+    if (locations.to && Number.isFinite(locations.to.latitude)) {
+      points.push([locations.to.latitude, locations.to.longitude]);
+    }
 
+    routes.forEach((route) => {
+      if (route.geometry && Array.isArray(route.geometry.coordinates)) {
+        route.geometry.coordinates.forEach(([lng, lat]) => {
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            points.push([lat, lng]);
+          }
+        });
+      }
+    });
+
+    if (points.length > 1) {
+      map.fitBounds(points, {
+        padding: [50, 50],
+        maxZoom: 15
+      });
+    }
+  }, [map, routes, locations]);
 
   return null;
 }
 
-
-function MapView({ routes, locations }) {
-
-  const defaultPosition = [
-    31.2533133,
-    75.7032788
-  ];
-
+function MapView({ routes = [], locations = null, selectedRouteId = null, onSelectRoute = null, incidents = [] }) {
+  const defaultCenter = [31.3260, 75.5762]; // Jalandhar default center
 
   return (
-
-    <div className="map-container">
+    <div className="map-card-container">
+      <div className="map-header-bar">
+        <span className="map-title">🗺️ Interactive Traffic &amp; Route Map</span>
+        <span className="map-legend-pills">
+          <span className="pill pill-rec">● Recommended</span>
+          <span className="pill pill-alt">● Alternatives</span>
+          <span className="pill pill-incident">⚠️ Incident Alert</span>
+        </span>
+      </div>
 
       <MapContainer
-        center={defaultPosition}
-        zoom={13}
+        center={defaultCenter}
+        zoom={12}
         scrollWheelZoom={true}
-        className="real-map"
-        style={{
-          height: "100%",
-          width: "100%"
-        }}
+        className="flow-real-map"
       >
-
         <TileLayer
-          attribution='&copy; OpenStreetMap contributors'
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-
-        {/* START */}
-
-        {locations && (
-
-          <Marker
-            position={[
-              locations.from.latitude,
-              locations.from.longitude
-            ]}
+        {/* START MARKER */}
+        {locations?.from && (
+          <CircleMarker
+            center={[locations.from.latitude, locations.from.longitude]}
+            radius={9}
+            pathOptions={{ fillColor: "#16a34a", fillOpacity: 1, color: "#ffffff", weight: 3 }}
           >
-
             <Popup>
-
-              <strong>Start</strong>
-
-              <br />
-
-              {locations.from.name}
-
+              <div className="map-popup">
+                <strong>🟢 Starting Location</strong>
+                <p>{locations.from.name}</p>
+              </div>
             </Popup>
-
-          </Marker>
-
+          </CircleMarker>
         )}
 
-
-        {/* DESTINATION */}
-
-        {locations && (
-
-          <Marker
-            position={[
-              locations.to.latitude,
-              locations.to.longitude
-            ]}
+        {/* DESTINATION MARKER */}
+        {locations?.to && (
+          <CircleMarker
+            center={[locations.to.latitude, locations.to.longitude]}
+            radius={9}
+            pathOptions={{ fillColor: "#dc2626", fillOpacity: 1, color: "#ffffff", weight: 3 }}
           >
-
             <Popup>
-
-              <strong>Destination</strong>
-
-              <br />
-
-              {locations.to.name}
-
+              <div className="map-popup">
+                <strong>🔴 Destination</strong>
+                <p>{locations.to.name}</p>
+              </div>
             </Popup>
-
-          </Marker>
-
+          </CircleMarker>
         )}
 
+        {/* DRAW CANDIDATE ROUTES */}
+        {routes.map((route, idx) => {
+          if (!route.geometry?.coordinates) return null;
 
-        {/* ROUTES */}
+          const positions = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+          const isSelected = selectedRouteId === route.id;
+          const isRec = route.recommended;
 
-        {routes.map((route) => {
-
-          if (
-            !route.geometry ||
-            !route.geometry.coordinates
-          ) {
-            return null;
-          }
-
-
-          const positions =
-            route.geometry.coordinates.map(
-              ([longitude, latitude]) => [
-
-                latitude,
-                longitude
-
-              ]
-            );
-
+          // Color selection
+          let strokeColor = isRec ? "#16a34a" : ROUTE_COLORS[(idx % (ROUTE_COLORS.length - 1)) + 1];
+          let weight = isRec || isSelected ? 7 : 4;
+          let opacity = isRec ? 0.95 : isSelected ? 0.9 : 0.65;
 
           return (
-
             <Polyline
-              key={route.id}
+              key={route.id || idx}
               positions={positions}
-              weight={6}
-              opacity={0.8}
-            />
-
+              pathOptions={{
+                color: strokeColor,
+                weight: weight,
+                opacity: opacity,
+                lineCap: "round",
+                lineJoin: "round"
+              }}
+              eventHandlers={{
+                click: () => {
+                  if (onSelectRoute) onSelectRoute(route.id);
+                }
+              }}
+            >
+              <Popup>
+                <div className="map-popup">
+                  <h4>{route.name} {route.recommended ? "⭐ (Best Route)" : ""}</h4>
+                  <p><strong>Distance:</strong> {route.distance} km</p>
+                  <p><strong>Current Estimate:</strong> {route.currentTime} min</p>
+                  <p><strong>Predicted Time:</strong> {route.predictedTime} min</p>
+                  {route.stabilityScore != null && (
+                    <p><strong>Stability Score:</strong> {route.stabilityScore}/100</p>
+                  )}
+                  {route.roadName && (
+                    <p className="subtext">Via {route.roadName}</p>
+                  )}
+                </div>
+              </Popup>
+            </Polyline>
           );
-
         })}
 
-
-        <MapController
-          routes={routes}
-          locations={locations}
-        />
-
+        <MapController routes={routes} locations={locations} />
       </MapContainer>
-
     </div>
-
   );
 }
-
 
 export default MapView;

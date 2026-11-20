@@ -1,138 +1,101 @@
-import { useState } from "react";
-
-import MapView from "./components/MapView";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import Navbar from "./components/Navbar";
-import SearchBox from "./components/SearchBox";
-import RouteList from "./components/RouteList";
-import TrafficAnalytics from "./components/TrafficAnalytics";
-
+import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
+import IncidentReport from "./pages/IncidentReport";
+import Login from "./pages/Login";
+import AuthorityPortal from "./pages/AuthorityPortal";
+import AdminPortal from "./pages/AdminPortal";
+import EmergencyAlertModal from "./components/EmergencyAlertModal";
 import "./App.css";
 
-
-function App() {
-
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-
-  // const [routes, setRoutes] = useState([]);
-  const [routes, setRoutes] = useState([]);
-const [locations, setLocations] = useState(null);
-
-
-  async function handleSearch() {
-
-    if (!from.trim() || !to.trim()) {
-
-      alert("Please enter both locations.");
-
-      return;
-    }
-
-
-    try {
-
-      const response = await fetch(
-        "http://localhost:5000/api/routes/search",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json"
-          },
-
-          body: JSON.stringify({
-            from: from,
-            to: to
-          })
-        }
-      );
-
-
-      const data = await response.json();
-
-
-      // console.log("Backend response:", data);
-      console.log(
-  "FlowSense API response:",
-  JSON.stringify(data, null, 2)
-);
-
-
-      if (data.success) {
-  setRoutes(data.routes);
-
-  setLocations({
-    from: data.from,
-    to: data.to
-  });
-
-      } else {
-
-        alert(data.message);
-
-      }
-
-    } catch (error) {
-
-      console.error("Backend connection error:", error);
-
-      alert("Unable to connect to FlowSense backend.");
-
-    }
+function ProtectedAuthorityRoute({ children }) {
+  const { isAuthority, isAuthenticated, loading } = useAuth();
+  if (loading) {
+    return <div className="page-loading-state">Authenticating Police Credentials...</div>;
   }
-
-
-  return (
-
-    <div className="app">
-
-      <Navbar />
-
-
-      <main className="main">
-
-        <section className="hero">
-
-          <h1>
-            Find the Best Route
-          </h1>
-
-          <p>
-            Predict traffic, avoid congestion,
-            and reach your destination smarter.
-          </p>
-
-        </section>
-
-
-        <SearchBox
-          from={from}
-          to={to}
-          setFrom={setFrom}
-          setTo={setTo}
-          onSearch={handleSearch}
-        />
-
-
-        <div className="results-layout">
-
-          <MapView
-  routes={routes}
-  locations={locations}
-/>
-
-          <RouteList
-            routes={routes}
-          />
-          <TrafficAnalytics />
-        </div>
-
-      </main>
-
-    </div>
-
-  );
+  if (!isAuthenticated || !isAuthority) {
+    return <Navigate to="/login?role=AUTHORITY&redirect=/authority" replace />;
+  }
+  return children;
 }
 
+function ProtectedAdminRoute({ children }) {
+  const { isAdmin, isAuthenticated, loading } = useAuth();
+  if (loading) {
+    return <div className="page-loading-state">Authenticating Root Administrator...</div>;
+  }
+  if (!isAuthenticated || !isAdmin) {
+    return <Navigate to="/login?role=ADMIN&redirect=/admin" replace />;
+  }
+  return children;
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <div className="flowsense-app">
+          <Navbar />
+
+          {/* GLOBAL EMERGENCY ALERT MODAL — Only sounds for authenticated Traffic Police */}
+          <EmergencyAlertModal />
+
+          <main className="flowsense-main">
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/report" element={<IncidentReport />} />
+
+              {/* STRICTLY ROLE-PROTECTED PORTALS — Visible only after successful login */}
+              <Route
+                path="/authority"
+                element={
+                  <ProtectedAuthorityRoute>
+                    <AuthorityPortal />
+                  </ProtectedAuthorityRoute>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedAdminRoute>
+                    <AdminPortal />
+                  </ProtectedAdminRoute>
+                }
+              />
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </main>
+
+          <footer className="flowsense-footer-ambient">
+            <div className="footer-inner-ambient">
+              <div className="footer-brand-ambient">
+                <span className="brand-logo-icon">🚦</span>
+                <div>
+                  <strong>FlowSense Enterprise</strong>
+                  <p>Predictive Traffic Flow &amp; Adaptive Multi-Role Routing System</p>
+                </div>
+              </div>
+              <div className="footer-links-ambient">
+                <a href="/login?role=ADMIN">Admin Console</a>
+                <a href="/login?role=AUTHORITY">Police Command</a>
+                <a href="/login?role=PUBLIC">Commuter Portal</a>
+                <a href="/report">Report Hazard</a>
+              </div>
+              <div className="footer-meta-ambient">
+                <span>Real-Time MongoDB Cloud • Open-Meteo Weather • OSRM Routing Grid</span>
+                <p>© {new Date().getFullYear()} FlowSense. Built for Smart Cities &amp; Safe Commuters.</p>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </BrowserRouter>
+    </AuthProvider>
+  );
+}
 
 export default App;

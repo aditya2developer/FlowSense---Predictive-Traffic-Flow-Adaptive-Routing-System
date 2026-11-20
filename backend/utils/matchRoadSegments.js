@@ -91,9 +91,9 @@ return closestDistance;
 // A successful match alone does not prove that a road's identity
 // or its historical traffic data is correct.
 async function matchRoadSegments(
-routeCoordinates,
-maxDistanceMeters = 50,
-minimumMatchPercentage = 80
+  routeCoordinates,
+  maxDistanceMeters = 1500,
+  minimumMatchPercentage = 25
 ) {
 const validRouteCoordinates =
 normalizeRouteCoordinates(routeCoordinates);
