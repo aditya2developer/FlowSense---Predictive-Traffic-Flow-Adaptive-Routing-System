@@ -94,8 +94,8 @@ function App() {
                 <a href="/contact">Helpline &amp; Contact (112 / 1033)</a>
               </div>
               <div className="footer-meta-ambient">
-                <span>Pan-India Coverage • 28 States &amp; 8 UTs • Open-Meteo Weather Grid</span>
-                <p>© {new Date().getFullYear()} FlowSense Platform. Built for MoRTH &amp; Smart Cities Mission.</p>
+                {/* <span>Pan-India Coverage • 28 States &amp; 8 UTs • Open-Meteo Weather Grid</span> */}
+                <p>© {new Date().getFullYear()} FlowSense Platform. Built for Smart Cities Mission.</p>
               </div>
             </div>
           </footer>
