@@ -6,6 +6,7 @@ import {
   User,
   LogOut,
   Compass,
+  Database,
   BarChart3,
   AlertTriangle,
   ChevronDown,
@@ -62,6 +63,14 @@ function Navbar() {
             className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
           >
             <BarChart3 size={16} /> <span>Analytics &amp; Heatmap</span>
+          </NavLink>
+
+          <NavLink
+            to="/database"
+            className={({ isActive }) => `ambient-nav-link link-database ${isActive ? "active-ambient-emerald" : ""}`}
+            title="Live MongoDB Atlas Collections & Documents Explorer"
+          >
+            <Database size={16} /> <span>MongoDB Platform</span>
           </NavLink>
 
           {/* AUTHORITY DISPATCH LINK — Visible only for authenticated Traffic Police & Admin */}
@@ -131,6 +140,14 @@ function Navbar() {
                   </div>
 
                   <div className="dropdown-divider" />
+
+                                    <Link
+                    to="/database"
+                    className="dropdown-item"
+                    onClick={() => setDropdownOpen(false)}
+                  >
+                    <Database size={15} /> MongoDB Platform Explorer
+                  </Link>
 
                   {/* QUICK PORTAL LINKS BASED ON ROLE */}
                   {isAdmin && (

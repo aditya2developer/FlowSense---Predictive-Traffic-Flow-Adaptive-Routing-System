@@ -10,6 +10,7 @@ const authorityRoutes = require("./routes/authorityRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const contactRoutes = require("./routes/contactRoutes");
 const chatRoutes = require("./routes/chatRoutes");
+const databaseRoutes = require("./routes/databaseRoutes");
 
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
@@ -50,6 +51,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/routes", routeRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/database", databaseRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {

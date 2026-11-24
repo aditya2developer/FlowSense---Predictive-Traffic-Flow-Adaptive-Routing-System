@@ -623,9 +623,11 @@ router.get("/traffic/history/:roadId", async (req, res) => {
 
 router.get("/traffic", async (req, res) => {
   try {
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
     const trafficRecords = await TrafficRecord
       .find()
-      .sort({ timestamp: -1 });
+      .sort({ timestamp: -1 })
+      .limit(limit);
 
     return res.json({
       success: true,

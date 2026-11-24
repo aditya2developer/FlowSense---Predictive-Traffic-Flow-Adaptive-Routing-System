@@ -284,3 +284,31 @@ export async function sendChatMessage(message) {
     body: JSON.stringify({ message })
   }, 7000);
 }
+
+// ==========================================
+// MONGODB PLATFORM & DATA EXPLORER APIs
+// ==========================================
+
+export async function fetchDatabaseOverview() {
+  return apiFetch("/api/database/overview", {}, 6000);
+}
+
+export async function fetchCollectionDocuments(collectionName, { page = 1, limit = 20, search = "", sortBy = "_id", sortOrder = "desc" } = {}) {
+  const query = new URLSearchParams({
+    page,
+    limit,
+    search,
+    sortBy,
+    sortOrder
+  }).toString();
+  return apiFetch(`/api/database/collection/${encodeURIComponent(collectionName)}?${query}`, {}, 7000);
+}
+
+export async function fetchDocumentDetails(collectionName, id) {
+  return apiFetch(`/api/database/document/${encodeURIComponent(collectionName)}/${encodeURIComponent(id)}`, {}, 5000);
+}
+
+export function getDatabaseExportUrl(collectionName) {
+  return `${BASE_URL}/api/database/export/${encodeURIComponent(collectionName)}`;
+}
+

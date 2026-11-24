@@ -8,6 +8,7 @@ import Login from "./pages/Login";
 import AuthorityPortal from "./pages/AuthorityPortal";
 import AdminPortal from "./pages/AdminPortal";
 import ContactHelpline from "./pages/ContactHelpline";
+import DatabasePlatform from "./pages/DatabasePlatform";
 import EmergencyAlertModal from "./components/EmergencyAlertModal";
 import FlowSenseChatbot from "./components/FlowSenseChatbot";
 import "./App.css";
@@ -52,6 +53,7 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/database" element={<DatabasePlatform />} />
               <Route path="/report" element={<IncidentReport />} />
               <Route path="/contact" element={<ContactHelpline />} />
 
@@ -87,6 +89,7 @@ function App() {
                 </div>
               </div>
               <div className="footer-links-ambient">
+                <a href="/database">MongoDB Platform</a>
                 <a href="/login?role=ADMIN">Admin Console</a>
                 <a href="/login?role=AUTHORITY">Police Command</a>
                 <a href="/login?role=PUBLIC">Commuter Portal</a>
@@ -94,7 +97,6 @@ function App() {
                 <a href="/contact">Helpline &amp; Contact (112 / 1033)</a>
               </div>
               <div className="footer-meta-ambient">
-                {/* <span>Pan-India Coverage • 28 States &amp; 8 UTs • Open-Meteo Weather Grid</span> */}
                 <p>© {new Date().getFullYear()} FlowSense Platform. Built for Smart Cities Mission.</p>
               </div>
             </div>

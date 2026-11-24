@@ -1,3 +1,4 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 const RoadSegment = require('./models/RoadSegment');
 const TrafficRecord = require('./models/TrafficRecord');
@@ -6,7 +7,8 @@ const Weather = require('./models/Weather');
 const Advisory = require('./models/Advisory');
 const User = require('./models/User');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/flowsense';
+const ATLAS_DEFAULT_URI = 'mongodb+srv://adityakumarsingh84092_db_user:aditya@cluster0.pbc06oq.mongodb.net/flowsense?retryWrites=true&w=majority';
+const MONGO_URI = process.env.MONGO_URI || ATLAS_DEFAULT_URI;
 
 // Multi-City Corridors: Jalandhar, Delhi NCR, Mumbai, Bengaluru, Chandigarh
 const roads = [
