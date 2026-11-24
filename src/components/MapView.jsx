@@ -7,15 +7,16 @@ import {
   CircleMarker,
   useMap
 } from "react-leaflet";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import "leaflet/dist/leaflet.css";
+import { Navigation, Compass, Radio, Shield, Sparkles, Layers, Eye } from "lucide-react";
 
 const ROUTE_COLORS = [
-  "#16a34a", // Recommended or primary
-  "#2563eb", // Route B
-  "#f59e0b", // Route C
-  "#8b5cf6", // Route D
-  "#ec4899"  // Route E
+  "#10b981", // Recommended (Emerald neon)
+  "#38bdf8", // Route B (Cyan neon)
+  "#f59e0b", // Route C (Amber neon)
+  "#c084fc", // Route D (Purple neon)
+  "#f43f5e"  // Route E (Rose neon)
 ];
 
 function MapController({ routes, locations }) {
@@ -53,7 +54,7 @@ function MapController({ routes, locations }) {
 
     if (points.length > 1) {
       map.fitBounds(points, {
-        padding: [50, 50],
+        padding: [60, 60],
         maxZoom: 15
       });
     }
@@ -62,113 +63,211 @@ function MapController({ routes, locations }) {
   return null;
 }
 
-function MapView({ routes = [], locations = null, selectedRouteId = null, onSelectRoute = null, incidents = [] }) {
+function MapView({
+  routes = [],
+  locations = null,
+  selectedRouteId = null,
+  onSelectRoute = null,
+  incidents = []
+}) {
   const defaultCenter = [31.3260, 75.5762]; // Jalandhar default center
+  const [mapTheme, setMapTheme] = useState("dark"); // "dark" | "osm"
+
+  const selectedRoute = routes.find((r) => r.id === selectedRouteId) || routes[0];
 
   return (
-    <div className="map-card-container">
+    <div className="map-card-container cyber-glow-map-card">
+      {/* MAP HEADER BAR */}
       <div className="map-header-bar">
-        <span className="map-title">🗺️ Interactive Traffic &amp; Route Map</span>
-        <span className="map-legend-pills">
-          <span className="pill pill-rec">● Recommended</span>
-          <span className="pill pill-alt">● Alternatives</span>
-          <span className="pill pill-incident">⚠️ Incident Alert</span>
-        </span>
+        <div className="map-header-left">
+          <div className="radar-status-dot">
+            <span className="dot-pulse-ring" />
+            <Radio size={15} className="text-emerald" />
+          </div>
+          <span className="map-title">Pan-India Geographic Corridor &amp; Trajectory HUD</span>
+        </div>
+
+        <div className="map-header-right">
+          <span className="map-legend-pills">
+            <span className="pill pill-rec">
+              <span className="legend-circle bg-emerald" /> Recommended
+            </span>
+            <span className="pill pill-alt">
+              <span className="legend-circle bg-cyan" /> Alternative
+            </span>
+            <span className="pill pill-incident">
+              <span className="legend-circle bg-rose" /> Hazards
+            </span>
+          </span>
+
+          <button
+            type="button"
+            className="map-theme-btn"
+            onClick={() => setMapTheme(mapTheme === "dark" ? "osm" : "dark")}
+            title="Toggle Map Style"
+          >
+            <Layers size={13} />
+            <span>{mapTheme === "dark" ? "Satellite/OSM" : "Dark Cyber"}</span>
+          </button>
+        </div>
       </div>
 
-      <MapContainer
-        center={defaultCenter}
-        zoom={12}
-        scrollWheelZoom={true}
-        className="flow-real-map"
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+      <div className="map-relative-wrapper">
+        {/* RADAR SWEEP ANIMATED HUD OVERLAY */}
+        <div className="map-radar-hud">
+          <div className="hud-radar-scanner">
+            <div className="radar-sweep-beam" />
+            <div className="radar-grid-ring ring-1" />
+            <div className="radar-grid-ring ring-2" />
+          </div>
+          <div className="hud-telemetry-text">
+            <span className="hud-gps-locked">GPS LOCKED</span>
+            <span className="hud-coords">
+              {locations?.from?.latitude
+                ? `${locations.from.latitude.toFixed(2)}°N, ${locations.from.longitude.toFixed(2)}°E`
+                : "28.61°N, 77.20°E"}
+            </span>
+          </div>
+        </div>
 
-        {/* START MARKER */}
-        {locations?.from && (
-          <CircleMarker
-            center={[locations.from.latitude, locations.from.longitude]}
-            radius={9}
-            pathOptions={{ fillColor: "#16a34a", fillOpacity: 1, color: "#ffffff", weight: 3 }}
-          >
-            <Popup>
-              <div className="map-popup">
-                <strong>🟢 Starting Location</strong>
-                <p>{locations.from.name}</p>
-              </div>
-            </Popup>
-          </CircleMarker>
+        {/* SELECTED ROUTE FLOATING CHIP OVER MAP */}
+        {selectedRoute && (
+          <div className="map-floating-route-chip">
+            <div className="floating-chip-title">
+              {selectedRoute.recommended && <Sparkles size={13} className="text-emerald" />}
+              <strong>{selectedRoute.name}</strong>
+              {selectedRoute.roadName && <span>• {selectedRoute.roadName}</span>}
+            </div>
+            <div className="floating-chip-stats">
+              <span>{selectedRoute.distance} km</span>
+              <span>•</span>
+              <span>{selectedRoute.predictedTime} min</span>
+              {selectedRoute.stabilityScore != null && (
+                <>
+                  <span>•</span>
+                  <span className="floating-score">
+                    Stability: {selectedRoute.stabilityScore}/100
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
         )}
 
-        {/* DESTINATION MARKER */}
-        {locations?.to && (
-          <CircleMarker
-            center={[locations.to.latitude, locations.to.longitude]}
-            radius={9}
-            pathOptions={{ fillColor: "#dc2626", fillOpacity: 1, color: "#ffffff", weight: 3 }}
-          >
-            <Popup>
-              <div className="map-popup">
-                <strong>🔴 Destination</strong>
-                <p>{locations.to.name}</p>
-              </div>
-            </Popup>
-          </CircleMarker>
-        )}
+        <MapContainer
+          center={defaultCenter}
+          zoom={12}
+          scrollWheelZoom={true}
+          className={`flow-real-map ${mapTheme === "dark" ? "map-filter-cyber" : ""}`}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
 
-        {/* DRAW CANDIDATE ROUTES */}
-        {routes.map((route, idx) => {
-          if (!route.geometry?.coordinates) return null;
-
-          const positions = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-          const isSelected = selectedRouteId === route.id;
-          const isRec = route.recommended;
-
-          // Color selection
-          let strokeColor = isRec ? "#16a34a" : ROUTE_COLORS[(idx % (ROUTE_COLORS.length - 1)) + 1];
-          let weight = isRec || isSelected ? 7 : 4;
-          let opacity = isRec ? 0.95 : isSelected ? 0.9 : 0.65;
-
-          return (
-            <Polyline
-              key={route.id || idx}
-              positions={positions}
+          {/* START MARKER */}
+          {locations?.from && (
+            <CircleMarker
+              center={[locations.from.latitude, locations.from.longitude]}
+              radius={10}
               pathOptions={{
-                color: strokeColor,
-                weight: weight,
-                opacity: opacity,
-                lineCap: "round",
-                lineJoin: "round"
-              }}
-              eventHandlers={{
-                click: () => {
-                  if (onSelectRoute) onSelectRoute(route.id);
-                }
+                fillColor: "#10b981",
+                fillOpacity: 1,
+                color: "#ffffff",
+                weight: 3
               }}
             >
               <Popup>
                 <div className="map-popup">
-                  <h4>{route.name} {route.recommended ? "⭐ (Best Route)" : ""}</h4>
-                  <p><strong>Distance:</strong> {route.distance} km</p>
-                  <p><strong>Current Estimate:</strong> {route.currentTime} min</p>
-                  <p><strong>Predicted Time:</strong> {route.predictedTime} min</p>
-                  {route.stabilityScore != null && (
-                    <p><strong>Stability Score:</strong> {route.stabilityScore}/100</p>
-                  )}
-                  {route.roadName && (
-                    <p className="subtext">Via {route.roadName}</p>
-                  )}
+                  <strong className="text-emerald">🟢 Origin Point</strong>
+                  <p>{locations.from.name}</p>
                 </div>
               </Popup>
-            </Polyline>
-          );
-        })}
+            </CircleMarker>
+          )}
 
-        <MapController routes={routes} locations={locations} />
-      </MapContainer>
+          {/* DESTINATION MARKER */}
+          {locations?.to && (
+            <CircleMarker
+              center={[locations.to.latitude, locations.to.longitude]}
+              radius={10}
+              pathOptions={{
+                fillColor: "#ef4444",
+                fillOpacity: 1,
+                color: "#ffffff",
+                weight: 3
+              }}
+            >
+              <Popup>
+                <div className="map-popup">
+                  <strong className="text-rose">🔴 Destination</strong>
+                  <p>{locations.to.name}</p>
+                </div>
+              </Popup>
+            </CircleMarker>
+          )}
+
+          {/* DRAW CANDIDATE ROUTES */}
+          {routes.map((route, idx) => {
+            if (!route.geometry?.coordinates) return null;
+
+            const positions = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+            const isSelected = selectedRouteId === route.id;
+            const isRec = route.recommended;
+
+            // Luminous Color selection
+            let strokeColor = isRec
+              ? "#10b981"
+              : ROUTE_COLORS[(idx % (ROUTE_COLORS.length - 1)) + 1];
+            let weight = isRec || isSelected ? 7 : 4;
+            let opacity = isRec ? 0.98 : isSelected ? 0.92 : 0.65;
+
+            return (
+              <Polyline
+                key={route.id || idx}
+                positions={positions}
+                pathOptions={{
+                  color: strokeColor,
+                  weight: weight,
+                  opacity: opacity,
+                  lineCap: "round",
+                  lineJoin: "round"
+                }}
+                eventHandlers={{
+                  click: () => {
+                    if (onSelectRoute) onSelectRoute(route.id);
+                  }
+                }}
+              >
+                <Popup>
+                  <div className="map-popup">
+                    <h4>
+                      {route.name} {route.recommended ? "⭐ (Best Route)" : ""}
+                    </h4>
+                    <p>
+                      <strong>Distance:</strong> {route.distance} km
+                    </p>
+                    <p>
+                      <strong>Current Estimate:</strong> {route.currentTime} min
+                    </p>
+                    <p>
+                      <strong>Predicted Time:</strong> {route.predictedTime} min
+                    </p>
+                    {route.stabilityScore != null && (
+                      <p>
+                        <strong>Stability Score:</strong> {route.stabilityScore}/100
+                      </p>
+                    )}
+                    {route.roadName && <p className="subtext">Via {route.roadName}</p>}
+                  </div>
+                </Popup>
+              </Polyline>
+            );
+          })}
+
+          <MapController routes={routes} locations={locations} />
+        </MapContainer>
+      </div>
     </div>
   );
 }

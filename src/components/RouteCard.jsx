@@ -1,3 +1,5 @@
+import { Sparkles, AlertTriangle, Lightbulb, Compass, Clock, Activity, Zap } from "lucide-react";
+
 function RouteCard({ route, isSelected = false, onSelect = null }) {
   const congestion = route.congestion?.toUpperCase() || "UNKNOWN";
 
@@ -6,7 +8,7 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
     MEDIUM: "medium",
     HIGH: "high",
     UNKNOWN: "unknown"
-  }[congestion];
+  }[congestion] || "unknown";
 
   const hasPredictedTime = Number.isFinite(route.predictedTime);
   const hasCurrentTime = Number.isFinite(route.currentTime);
@@ -31,95 +33,103 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
     !hasStabilityScore
       ? "#94a3b8"
       : route.stabilityScore >= 75
-      ? "#16a34a"
+      ? "#10b981"
       : route.stabilityScore >= 50
       ? "#f59e0b"
       : "#ef4444";
 
   return (
     <article
-      className={`route-card ${route.recommended ? "recommended" : ""} ${
-        isSelected ? "selected-route" : ""
+      className={`route-card cyber-route-card ${route.recommended ? "recommended-glow" : ""} ${
+        isSelected ? "selected-route-glow" : ""
       }`}
       onClick={() => onSelect && onSelect(route.id)}
     >
+      {/* GLOWING AMBIENT TOP BORDER */}
+      <div className={`route-glow-edge ${route.recommended ? "glow-edge-emerald" : isSelected ? "glow-edge-cyan" : ""}`} />
+
       <div className="route-header">
-        <div>
-          <h3>
-            {route.recommended && "⭐ "}
-            {route.name || "Route"}
-          </h3>
+        <div className="route-title-wrap">
+          <div className="route-name-row">
+            {route.recommended && <Sparkles size={16} className="text-emerald sparkle-anim" />}
+            <h3>{route.name || "Route"}</h3>
+          </div>
           {route.roadName && <p className="road-name">Via {route.roadName}</p>}
         </div>
 
         <div className="badge-group">
           {route.recommended && (
-            <span className="recommended-badge">Recommended</span>
+            <span className="recommended-badge cyber-rec-badge">
+              <span className="rec-dot-pulse" />
+              <span>AI Recommended</span>
+            </span>
           )}
           {route.activeIncidents && route.activeIncidents.length > 0 && (
-            <span className="incident-alert-badge" title={`${route.activeIncidents.length} active incident(s) reported`}>
-              ⚠️ {route.activeIncidents.length} Incident
+            <span
+              className="incident-alert-badge"
+              title={`${route.activeIncidents.length} active incident(s) reported along corridor`}
+            >
+              <AlertTriangle size={12} />
+              <span>{route.activeIncidents.length} Hazard</span>
             </span>
           )}
         </div>
       </div>
 
       <div className="route-details">
-        <div>
-          <span>Distance</span>
-          <strong>
-            {Number.isFinite(route.distance)
-              ? `${route.distance.toFixed(2)} km`
-              : "—"}
+        <div className="detail-stat-card">
+          <span className="detail-label">Distance</span>
+          <strong className="detail-val">
+            {Number.isFinite(route.distance) ? `${route.distance.toFixed(1)} km` : "—"}
           </strong>
         </div>
 
-        <div>
-          <span>Current Est.</span>
-          <strong>
+        <div className="detail-stat-card">
+          <span className="detail-label">Current Est.</span>
+          <strong className="detail-val">
             {hasCurrentTime ? `${route.currentTime} min` : "—"}
           </strong>
         </div>
 
-        <div>
-          <span>Predicted</span>
-          <strong>
+        <div className="detail-stat-card">
+          <span className="detail-label">Predicted</span>
+          <strong className="detail-val">
             {hasPredictedTime ? `${route.predictedTime} min` : "—"}
           </strong>
           {timeDifference !== null && (
             <small
-              className={
+              className={`time-diff-badge ${
                 timeDifference > 0
                   ? "time-increase"
                   : timeDifference < 0
                   ? "time-decrease"
                   : "time-unchanged"
-              }
+              }`}
             >
               {timeDifference > 0
-                ? `+${timeDifference} min delay`
+                ? `+${timeDifference}m delay`
                 : timeDifference < 0
-                ? `${timeDifference} min faster`
-                : "Consistent"}
+                ? `${timeDifference}m faster`
+                : "Steady"}
             </small>
           )}
         </div>
 
-        <div>
-          <span>Congestion Risk</span>
+        <div className="detail-stat-card">
+          <span className="detail-label">Congestion</span>
           <strong className={`congestion-badge ${congestionClass}`}>
             {congestion}
           </strong>
         </div>
 
-        <div>
-          <span>Stability Score</span>
-          <strong style={{ color: stabilityColor }}>
+        <div className="detail-stat-card stability-stat-card">
+          <span className="detail-label">Stability Score</span>
+          <strong className="detail-val" style={{ color: stabilityColor }}>
             {hasStabilityScore ? `${route.stabilityScore}/100` : "N/A"}
           </strong>
           {hasStabilityScore && (
             <div
-              className="stability-track"
+              className="stability-track cyber-track"
               role="progressbar"
               aria-label="Route stability"
               aria-valuemin={0}
@@ -130,7 +140,8 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
                 className="stability-fill"
                 style={{
                   width: `${Math.min(100, Math.max(0, route.stabilityScore))}%`,
-                  backgroundColor: stabilityColor
+                  backgroundColor: stabilityColor,
+                  boxShadow: `0 0 8px ${stabilityColor}`
                 }}
               />
             </div>
@@ -141,18 +152,20 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
       {/* RATIONALE & EXPLANATION */}
       {route.explanation && (
         <div className="route-explanation">
-          <span className="exp-icon">💡</span>
+          <Lightbulb size={15} className="exp-icon text-amber" />
           <p>{route.explanation}</p>
         </div>
       )}
 
       {/* WHAT YOU SHOULD DO - ACTIONABLE COMMUTER GUIDANCE */}
       <div className="commuter-action-recommendation">
-        <span className="rec-bulb">🧭</span>
+        <Compass size={16} className="rec-bulb text-cyan" />
         <div>
-          <strong>What You Should Do (Recommended Action):</strong>
+          <strong>Actionable Traffic Police Guidance:</strong>
           <p>
-            {route.activeIncidents && route.activeIncidents.length > 0 && route.activeIncidents[0].recommendation
+            {route.activeIncidents &&
+            route.activeIncidents.length > 0 &&
+            route.activeIncidents[0].recommendation
               ? route.activeIncidents[0].recommendation
               : congestion === "HIGH"
               ? "High congestion risk detected along this corridor. Maintain safe braking distance; consider delaying departure by 25 mins or taking an alternate bypass."
@@ -163,15 +176,15 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
         </div>
       </div>
 
-      {/* HISTORICAL TRAFFIC DETAILS */}
+      {/* HISTORICAL TRAFFIC DETAILS ACCORDION */}
       {prediction && (
         <details className="traffic-summary-accordion">
-          <summary>View Historical Traffic Details</summary>
+          <summary>View Historical Traffic Details from MongoDB Atlas</summary>
           <div className="traffic-summary-content">
             {Number.isFinite(prediction.predictedVehicleCount) && (
               <p>
-                Average vehicle count:{" "}
-                <strong>{prediction.predictedVehicleCount} vehicles</strong>
+                Average vehicle volume:{" "}
+                <strong>{prediction.predictedVehicleCount} vehicles/hr</strong>
               </p>
             )}
             {Number.isFinite(prediction.predictedSpeed) && (
@@ -182,8 +195,8 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
             )}
             {Number.isFinite(prediction.historicalRecords) && (
               <p>
-                Records analyzed:{" "}
-                <strong>{prediction.historicalRecords} observations</strong>
+                Atlas observations analyzed:{" "}
+                <strong>{prediction.historicalRecords} time-series records</strong>
               </p>
             )}
             {predictionSource && (

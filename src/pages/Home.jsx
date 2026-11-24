@@ -5,15 +5,15 @@ import RouteList from "../components/RouteList";
 import WeatherWidget from "../components/WeatherWidget";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { searchRoutes, fetchAdvisories } from "../api";
-import { AlertCircle, Radio, Sparkles } from "lucide-react";
+import { AlertCircle, Radio, Sparkles, Activity, ShieldCheck, Database, Zap, Cpu } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Link } from "react-router-dom";
 
 function Home() {
   const { user, role } = useAuth();
 
-  const [from, setFrom] = useState("Connaught Place, New Delhi");
-  const [to, setTo] = useState("Indira Gandhi International Airport, New Delhi");
+  const [from, setFrom] = useState("Connaught Place (Rajiv Chowk), New Delhi");
+  const [to, setTo] = useState("Indira Gandhi International Airport, Terminal 3, New Delhi");
   const [routes, setRoutes] = useState([]);
   const [locations, setLocations] = useState(null);
   const [selectedRouteId, setSelectedRouteId] = useState(null);
@@ -75,72 +75,99 @@ function Home() {
             <div className="advisory-marquee">
               <strong>Official Traffic Advisory:</strong>{" "}
               {advisories.map((a, i) => (
-                <span key={a._id} className="advisory-pill-item">
-                  <span className={`adv-tag tag-${a.severity.toLowerCase()}`}>[{a.severity}]</span> {a.title} — {a.message}
+                <span key={a._id || i} className="advisory-pill-item">
+                  <span className={`adv-tag tag-${(a.severity || "medium").toLowerCase()}`}>
+                    [{a.severity || "INFO"}]
+                  </span>{" "}
+                  {a.title} — {a.message}
                   {i < advisories.length - 1 ? " • " : ""}
                 </span>
               ))}
             </div>
-            {role === "AUTHORITY" && (
-              <Link to="/authority" className="manage-adv-link">Manage Advisories →</Link>
-            )}
+            <Link to="/contact" className="advisory-action-link">
+              View Emergency Numbers
+            </Link>
           </div>
         </aside>
       )}
 
-      {/* AMBIENT HERO SECTION */}
-      <section className="hero-section">
-        <div className="hero-content">
-          <div className="hero-badge">
-            <Sparkles size={14} /> Next-Gen AI Navigation &amp; Traffic Memory
-          </div>
-          <h1>Find the Best Route with Traffic Memory</h1>
-          <p>
-            Standard GPS guides you by what traffic is doing <em>right now</em>.
-            FlowSense analyzes thousands of historical observations to predict impending congestion spikes and score route reliability.
-          </p>
-
-          <WeatherWidget initialCity="Delhi" />
+      {/* FUTURISTIC GLOWING TELEMETRY TICKER */}
+      <div className="cyber-telemetry-ticker">
+        <div className="telemetry-pill">
+          <span className="telemetry-dot pulse-emerald" />
+          <span className="telemetry-label">Grid Status:</span>
+          <strong>Pan-India Online</strong>
         </div>
+        <div className="telemetry-pill">
+          <Database size={13} className="text-cyan" />
+          <span className="telemetry-label">MongoDB Atlas:</span>
+          <Link to="/database" className="ticker-link">9,265+ Records</Link>
+        </div>
+        <div className="telemetry-pill">
+          <Cpu size={13} className="text-purple" />
+          <span className="telemetry-label">AI Engine:</span>
+          <span>4-Factor Stability Model</span>
+        </div>
+        <div className="telemetry-pill">
+          <ShieldCheck size={13} className="text-amber" />
+          <span className="telemetry-label">Helplines:</span>
+          <span>112 / 1033 (24x7 Active)</span>
+        </div>
+      </div>
+
+      {/* HERO SECTION */}
+      <section className="hero-section">
+        <div className="hero-badge">
+          <Sparkles size={14} className="hero-sparkle-anim text-cyan" />
+          <span>Next-Generation Predictive Mobility Grid</span>
+        </div>
+
+        <h1 className="hero-title">
+          Intelligent Highway Routing &amp; <br />
+          <span className="gradient-text-shimmer">Dynamic Corridor Stability</span>
+        </h1>
+
+        <p className="hero-subtitle">
+          FlowSense analyzes 9,240+ time-series traffic records in MongoDB Atlas, combining historical speed variability,
+          meteorological sensors, and live incident hazards to identify the safest, most resilient route.
+        </p>
       </section>
 
-      {/* USER SESSION STATUS STRIP (NO SWITCHING WITHOUT LOGIN) */}
-      {user && (
-        <div className="active-user-greeting-strip">
-          <div className="greeting-inner">
-            <span className="greeting-badge">
-              {role === "ADMIN" ? "🛡️ System Administrator" : role === "AUTHORITY" ? "🚔 Traffic Police Command" : "🚗 Citizen Commuter"}
-            </span>
-            <span className="greeting-text">
-              Logged in as: <strong>{user.name}</strong> ({user.email})
-              {user.department && ` • ${user.department}`}
-            </span>
+      {/* SEARCH AND WEATHER ROW */}
+      <div className="home-top-grid">
+        <div className="search-col">
+          <SearchBox
+            from={from}
+            to={to}
+            setFrom={setFrom}
+            setTo={setTo}
+            onSearch={handleSearch}
+            loading={loading}
+          />
+        </div>
+
+        <div className="weather-col">
+          <WeatherWidget defaultCity="Delhi" />
+        </div>
+      </div>
+
+      {/* ERROR MESSAGE */}
+      {error && (
+        <div className="error-banner cyber-error-banner" role="alert">
+          <AlertCircle size={20} />
+          <div>
+            <strong>Routing Alert</strong>
+            <p>{error}</p>
           </div>
         </div>
       )}
 
-      <section className="search-section">
-        <SearchBox
-          from={from}
-          to={to}
-          setFrom={setFrom}
-          setTo={setTo}
-          onSearch={handleSearch}
-          loading={loading}
-        />
-
-        {error && (
-          <div className="search-error-banner" role="alert">
-            <AlertCircle size={18} />
-            <p>{error}</p>
-          </div>
-        )}
-      </section>
-
+      {/* LOADING STATE */}
       {loading && (
         <LoadingSpinner message="Evaluating candidate routes, querying MongoDB traffic memory, and computing Stability Scores..." />
       )}
 
+      {/* ROUTE RESULTS & MAP SECTION */}
       {!loading && routes.length > 0 && (
         <section className="results-wrapper">
           <div className="results-grid">
@@ -164,32 +191,35 @@ function Home() {
         </section>
       )}
 
-      {/* WHY FLOWSENSE EXPLAINER */}
+      {/* WHY FLOWSENSE EXPLAINER WITH GLOWING CYBER CARDS */}
       <section className="features-showcase">
         <h2>Engineered for Commuters, Police &amp; Municipalities</h2>
         <div className="features-grid">
-          <div className="feature-card">
+          <div className="feature-card cyber-hover-card">
             <span className="feature-icon">🧠</span>
             <h3>Traffic Memory Engine</h3>
             <p>
-              Stores hundreds of time-series observations by day of week and hour to identify recurring bottlenecks that live GPS misses.
+              Stores hundreds of time-series observations in MongoDB by day of week and hour to identify recurring bottlenecks that live GPS engines miss.
             </p>
+            <div className="card-edge-glow" />
           </div>
 
-          <div className="feature-card">
+          <div className="feature-card cyber-hover-card">
             <span className="feature-icon">🎯</span>
             <h3>Predictive Route Stability</h3>
             <p>
-              Combines delay risk, speed variability, active hazards, and weather into an explainable 0–100 score.
+              Combines delay risk, RMSE speed variability, active hazards, and real-time precipitation into an explainable 0–100 Stability Score.
             </p>
+            <div className="card-edge-glow" />
           </div>
 
-          <div className="feature-card">
-            <span className="feature-icon">🚓</span>
+          <div className="feature-card cyber-hover-card">
+            <span className="feature-icon">🚑</span>
             <h3>Authority Dispatch Hub</h3>
             <p>
-              Enables traffic police to synchronize emergency green corridors, broadcast driver alerts, and clear road hazards in real time.
+              Enables traffic police to synchronize emergency green corridors, broadcast civilian siren alerts, and clear road hazards in real time.
             </p>
+            <div className="card-edge-glow" />
           </div>
         </div>
       </section>
