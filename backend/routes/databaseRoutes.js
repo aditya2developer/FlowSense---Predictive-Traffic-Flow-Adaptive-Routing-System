@@ -12,7 +12,7 @@ function sanitizeDocument(doc, collectionName) {
   return obj;
 }
 
-// Infer field types from document samples
+// Inferred field types from document samples
 function inferSchema(docs) {
   if (!docs || docs.length === 0) return [];
   const fieldsMap = {};
@@ -33,17 +33,61 @@ function inferSchema(docs) {
   return Object.entries(fieldsMap).map(([field, type]) => ({ field, type }));
 }
 
+// Resilient DB accessor with auto-reconnect
+async function getDb() {
+  if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
+    return mongoose.connection.db;
+  }
+  if (mongoose.connection.readyState !== 1) {
+    try {
+      const connectDB = require("../config/db");
+      await connectDB();
+    } catch (e) {
+      console.warn("Auto-connect DB attempt failed:", e.message);
+    }
+  }
+  if (mongoose.connection.db) {
+    return mongoose.connection.db;
+  }
+  if (mongoose.connection.getClient) {
+    try {
+      const client = mongoose.connection.getClient();
+      if (client) return client.db();
+    } catch (e) {}
+  }
+  return null;
+}
+
+/**
+ * GET /api/database/diagnostic
+ * Health & connection diagnostic for debugging Atlas connectivity.
+ */
+router.get("/diagnostic", (req, res) => {
+  return res.json({
+    success: true,
+    readyState: mongoose.connection.readyState,
+    readyStateName: mongoose.STATES[mongoose.connection.readyState],
+    hasDb: !!mongoose.connection.db,
+    dbName: mongoose.connection.db?.databaseName || null,
+    isMongoConnected: global.isMongoConnected || false,
+    lastConnectionError: global.mongoConnectionError || null,
+    envUriConfigured: !!process.env.MONGO_URI,
+    activeHost: mongoose.connection.host || null,
+    timestamp: new Date().toISOString()
+  });
+});
+
 /**
  * GET /api/database/overview
  * Real-time metadata for all collections, document counts, and Atlas cluster stats.
  */
 router.get("/overview", async (req, res) => {
   try {
-    const db = mongoose.connection.db;
+    const db = await getDb();
     if (!db) {
       return res.status(503).json({
         success: false,
-        message: "Database connection not initialized"
+        message: "Database connection not initialized: " + (global.mongoConnectionError || "Disconnected")
       });
     }
 
@@ -74,7 +118,6 @@ router.get("/overview", async (req, res) => {
     let totalDocs = 0;
 
     for (const c of rawCollections) {
-      // Exclude internal system collections
       if (c.name.startsWith("system.")) continue;
 
       const colInstance = db.collection(c.name);
@@ -150,7 +193,7 @@ router.get("/collection/:collectionName", async (req, res) => {
     const sortBy = req.query.sortBy || "_id";
     const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
 
-    const db = mongoose.connection.db;
+    const db = await getDb();
     if (!db) {
       return res.status(503).json({ success: false, message: "Database not connected" });
     }
@@ -161,7 +204,6 @@ router.get("/collection/:collectionName", async (req, res) => {
     // Build filter query
     let filter = {};
     if (search) {
-      // Search in common fields or regex search across string attributes
       const searchRegex = new RegExp(search, "i");
       filter = {
         $or: [
@@ -226,7 +268,10 @@ router.get("/collection/:collectionName", async (req, res) => {
 router.get("/document/:collectionName/:id", async (req, res) => {
   try {
     const { collectionName, id } = req.params;
-    const db = mongoose.connection.db;
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ success: false, message: "Database not connected" });
+    }
     const colInstance = db.collection(collectionName);
 
     let doc = null;
@@ -260,10 +305,12 @@ router.get("/document/:collectionName/:id", async (req, res) => {
 router.get("/export/:collectionName", async (req, res) => {
   try {
     const { collectionName } = req.params;
-    const db = mongoose.connection.db;
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ success: false, message: "Database not connected" });
+    }
     const colInstance = db.collection(collectionName);
 
-    // Limit export to max 5000 records for performance
     const docs = await colInstance.find({}).limit(5000).toArray();
     const sanitized = docs.map((d) => sanitizeDocument(d, collectionName));
 
