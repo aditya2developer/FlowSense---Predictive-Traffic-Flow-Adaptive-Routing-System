@@ -369,6 +369,24 @@ export async function sendChatMessage(message) {
 }
 
 // ==========================================
+// ACTIVE LOCATION SYNC & RECENT SEARCHES
+// ==========================================
+
+export async function updateActiveLocation(city, state) {
+  return apiFetch("/api/auth/active-location", {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ city, state })
+  }, 4000);
+}
+
+export async function fetchRecentSearches() {
+  return apiFetch("/api/routes/recent-searches", {
+    headers: getAuthHeaders()
+  }, 5000);
+}
+
+// ==========================================
 // MONGODB PLATFORM & DATA EXPLORER APIs
 // ==========================================
 

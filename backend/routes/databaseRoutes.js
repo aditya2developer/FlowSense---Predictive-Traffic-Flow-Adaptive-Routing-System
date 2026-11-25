@@ -116,7 +116,7 @@ router.get("/overview", authenticate, requireRole("ADMIN"), async (req, res) => 
     }
 
     const rawCollections = await db.listCollections().toArray();
-    const collectionOrder = ["roadsegments", "trafficrecords", "incidents", "weathers", "advisories", "users", "contactmessages"];
+    const collectionOrder = ["roadsegments", "trafficrecords", "incidents", "weathers", "advisories", "routesearches", "users", "contactmessages"];
     rawCollections.sort((a, b) => {
       const idxA = collectionOrder.indexOf(a.name);
       const idxB = collectionOrder.indexOf(b.name);

@@ -48,6 +48,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    lastActiveCity: {
+      type: String,
+      default: ""
+    },
+    lastActiveState: {
+      type: String,
+      default: ""
+    },
     phone: {
       type: String,
       default: ""

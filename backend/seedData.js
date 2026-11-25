@@ -197,13 +197,19 @@ function getTrafficForHour(hour) {
   };
 }
 
-async function runSeed() {
+async function runSeed({ preserveUserRecords = false } = {}) {
   console.log('Seeding FlowSense database...');
   await RoadSegment.deleteMany({});
   await TrafficRecord.deleteMany({});
   await Incident.deleteMany({});
   await Weather.deleteMany({});
   await Advisory.deleteMany({});
+  if (!preserveUserRecords) {
+    await User.deleteMany({});
+    console.log('Cleared all user records for fresh seed.');
+  } else {
+    console.log('Preserving existing user records.');
+  }
 
   // 1. Insert Road Segments
   await RoadSegment.insertMany(roads);

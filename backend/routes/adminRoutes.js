@@ -6,6 +6,8 @@ const TrafficRecord = require("../models/TrafficRecord");
 const Incident = require("../models/Incident");
 const Weather = require("../models/Weather");
 const Advisory = require("../models/Advisory");
+const RouteSearch = require("../models/RouteSearch");
+const ContactMessage = require("../models/ContactMessage");
 const MemoryStore = require("../utils/memoryStore");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { runSeed } = require("../seedData");
@@ -18,78 +20,82 @@ const router = express.Router();
 router.get("/stats", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {
-      try {
-        const [
-          userCount,
-          segmentCount,
-          trafficRecordCount,
-          incidentCount,
-          weatherCount,
-          advisoryCount
-        ] = await Promise.all([
-          User.countDocuments(),
-          RoadSegment.countDocuments(),
-          TrafficRecord.countDocuments(),
-          Incident.countDocuments(),
-          Weather.countDocuments(),
-          Advisory.countDocuments()
-        ]);
+      const [
+        userCount,
+        segmentCount,
+        trafficRecordCount,
+        incidentCount,
+        weatherCount,
+        advisoryCount,
+        routeSearchCount,
+        contactMessageCount,
+        colList
+      ] = await Promise.all([
+        User.countDocuments(),
+        RoadSegment.countDocuments(),
+        TrafficRecord.countDocuments(),
+        Incident.countDocuments(),
+        Weather.countDocuments(),
+        Advisory.countDocuments(),
+        RouteSearch.countDocuments(),
+        ContactMessage.countDocuments(),
+        mongoose.connection.db ? mongoose.connection.db.listCollections().toArray() : Promise.resolve([])
+      ]);
 
-        const roadTrafficCounts = await TrafficRecord.aggregate([
-          {
-            $group: {
-              _id: "$roadId",
-              roadName: { $first: "$roadName" },
-              readings: { $sum: 1 },
-              avgSpeed: { $avg: "$averageSpeed" },
-              highCongestionCount: {
-                $sum: { $cond: [{ $eq: ["$congestionLevel", "HIGH"] }, 1, 0] }
-              }
+      const roadTrafficCounts = await TrafficRecord.aggregate([
+        {
+          $group: {
+            _id: "$roadId",
+            roadName: { $first: "$roadName" },
+            readings: { $sum: 1 },
+            avgSpeed: { $avg: "$averageSpeed" },
+            highCongestionCount: {
+              $sum: { $cond: [{ $eq: ["$congestionLevel", "HIGH"] }, 1, 0] }
             }
-          },
-          { $sort: { _id: 1 } }
-        ]);
-
-        const recentUsers = await User.find()
-          .select("-password")
-          .sort({ createdAt: -1 })
-          .limit(10);
-
-        const dbStats = {
-          databaseName: mongoose.connection.name || "flowsense",
-          connectionState: "CONNECTED",
-          host: mongoose.connection.host || "127.0.0.1",
-          port: mongoose.connection.port || 27017,
-          totalCollections: 6
-        };
-
-        return res.json({
-          success: true,
-          data: {
-            counts: {
-              users: userCount,
-              roads: segmentCount,
-              trafficReadings: trafficRecordCount,
-              incidents: incidentCount,
-              weatherSnapshots: weatherCount,
-              advisories: advisoryCount
-            },
-            systemInfo: {
-              serverUptimeSeconds: Math.floor(process.uptime()),
-              nodeVersion: process.version,
-              platform: process.platform,
-              memoryUsageMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
-              mlModelStatus: "Random Forest Models Active (R²=0.887)",
-              routingEngine: "OSRM Open Driving Grid + Haversine Matcher"
-            },
-            database: dbStats,
-            roadDistribution: roadTrafficCounts,
-            recentUsers
           }
-        });
-      } catch (e) {
-        // Fall back to memory store
-      }
+        },
+        { $sort: { _id: 1 } }
+      ]);
+
+      const recentUsers = await User.find()
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .limit(10);
+
+      const dbStats = {
+        databaseName: mongoose.connection.name || "flowsense",
+        connectionState: "CONNECTED",
+        host: mongoose.connection.host || "127.0.0.1",
+        port: mongoose.connection.port || 27017,
+        totalCollections: colList.length || 8
+      };
+
+      return res.json({
+        success: true,
+        data: {
+          counts: {
+            users: userCount,
+            roads: segmentCount,
+            trafficReadings: trafficRecordCount,
+            incidents: incidentCount,
+            weatherSnapshots: weatherCount,
+            advisories: advisoryCount,
+            routeSearches: routeSearchCount,
+            contactMessages: contactMessageCount
+          },
+          systemInfo: {
+            serverUptimeSeconds: Math.floor(process.uptime()),
+            nodeVersion: process.version,
+            platform: process.platform,
+            memoryUsageMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+            mlModelStatus: "Random Forest Models Active (R²=0.887)",
+            routingEngine: "OSRM Open Driving Grid + Haversine Matcher"
+          },
+          database: dbStats,
+          roadDistribution: roadTrafficCounts,
+          recentUsers
+        }
+      });
     }
 
     return res.json({
@@ -97,9 +103,9 @@ router.get("/stats", authenticate, requireRole("ADMIN"), async (req, res) => {
       data: MemoryStore.getStats()
     });
   } catch (error) {
-    return res.json({
-      success: true,
-      data: MemoryStore.getStats()
+    return res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 });
@@ -132,33 +138,33 @@ router.post("/users", authenticate, requireRole("ADMIN"), async (req, res) => {
     const cleanEmail = String(email).trim().toLowerCase();
 
     if (global.isMongoConnected) {
-      try {
-        const existing = await User.findOne({ email: cleanEmail });
-        if (existing) {
-          return res.status(400).json({ success: false, message: "User with this email already exists." });
+      const existing = await User.findOne({ email: cleanEmail });
+      if (existing) {
+        return res.status(400).json({ success: false, message: "User with this email already exists." });
+      }
+      const user = new User({
+        name: name.trim(),
+        email: cleanEmail,
+        password,
+        role: role || "PUBLIC",
+        department: department || "Operations",
+        badgeNumber: badgeNumber || "",
+        isEmailVerified: true,
+        verificationStatus: "VERIFIED"
+      });
+      await user.save();
+      return res.status(201).json({
+        success: true,
+        message: `User ${user.name} created successfully.`,
+        data: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          department: user.department,
+          badgeNumber: user.badgeNumber
         }
-        const user = new User({
-          name: name.trim(),
-          email: cleanEmail,
-          password,
-          role: role || "PUBLIC",
-          department: department || "Operations",
-          badgeNumber: badgeNumber || ""
-        });
-        await user.save();
-        return res.status(201).json({
-          success: true,
-          message: `User ${user.name} created successfully.`,
-          data: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            department: user.department,
-            badgeNumber: user.badgeNumber
-          }
-        });
-      } catch (e) {}
+      });
     }
 
     const created = MemoryStore.createUser({
@@ -187,14 +193,15 @@ router.patch("/users/:id/role", authenticate, requireRole("ADMIN"), async (req, 
       return res.status(400).json({ success: false, message: "Invalid role." });
     }
     if (global.isMongoConnected) {
-      try {
-        const updated = await User.findByIdAndUpdate(
-          req.params.id,
-          { role },
-          { new: true }
-        ).select("-password");
-        if (updated) return res.json({ success: true, data: updated, message: `Role updated to ${role}` });
-      } catch (e) {}
+      const updated = await User.findByIdAndUpdate(
+        req.params.id,
+        { role },
+        { new: true }
+      ).select("-password");
+      if (!updated) {
+        return res.status(404).json({ success: false, message: "User not found." });
+      }
+      return res.json({ success: true, data: updated, message: `Role updated to ${role}` });
     }
     const memUpdated = MemoryStore.updateUserRole(req.params.id, role);
     return res.json({ success: true, data: memUpdated, message: `Role updated to ${role}` });
@@ -325,10 +332,11 @@ router.patch("/users/:id/verify-profile-update", authenticate, requireRole("ADMI
 router.delete("/users/:id", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {
-      try {
-        const deleted = await User.findByIdAndDelete(req.params.id);
-        if (deleted) return res.json({ success: true, message: `User ${deleted.name} (${deleted.email}) deleted.` });
-      } catch (e) {}
+      const deleted = await User.findByIdAndDelete(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ success: false, message: "User not found." });
+      }
+      return res.json({ success: true, message: `User ${deleted.name} (${deleted.email}) deleted.` });
     }
     const memDeleted = MemoryStore.deleteUser(req.params.id);
     return res.json({ success: true, message: `User deleted from memory.` });
@@ -370,21 +378,24 @@ router.post("/segments", authenticate, requireRole("ADMIN"), async (req, res) =>
     }
 
     if (global.isMongoConnected) {
-      try {
-        const newSegment = new RoadSegment({
-          roadId: String(roadId).trim().toUpperCase(),
-          roadName: roadName.trim(),
-          roadType: ["HIGHWAY", "MAIN_ROAD", "LOCAL_ROAD"].includes(roadType) ? roadType : "MAIN_ROAD",
-          coordinates,
-          isActive: true
-        });
-        const saved = await newSegment.save();
-        return res.status(201).json({
-          success: true,
-          message: `Road corridor '${saved.roadName}' created successfully in MongoDB.`,
-          data: saved
-        });
-      } catch (e) {}
+      const normalizedId = String(roadId).trim().toUpperCase();
+      const dup = await RoadSegment.findOne({ roadId: normalizedId });
+      if (dup) {
+        return res.status(400).json({ success: false, message: `Road ID '${normalizedId}' already exists.` });
+      }
+      const newSegment = new RoadSegment({
+        roadId: normalizedId,
+        roadName: roadName.trim(),
+        roadType: ["HIGHWAY", "MAIN_ROAD", "LOCAL_ROAD"].includes(roadType) ? roadType : "MAIN_ROAD",
+        coordinates,
+        isActive: true
+      });
+      const saved = await newSegment.save();
+      return res.status(201).json({
+        success: true,
+        message: `Road corridor '${saved.roadName}' saved successfully.`,
+        data: saved
+      });
     }
 
     const created = MemoryStore.createRoad({ roadId, roadName, roadType, coordinates });
@@ -401,10 +412,11 @@ router.post("/segments", authenticate, requireRole("ADMIN"), async (req, res) =>
 router.delete("/segments/:id", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {
-      try {
-        const deleted = await RoadSegment.findByIdAndDelete(req.params.id);
-        if (deleted) return res.json({ success: true, message: `Road segment '${deleted.roadName}' removed.` });
-      } catch (e) {}
+      const deleted = await RoadSegment.findByIdAndDelete(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ success: false, message: "Road segment not found." });
+      }
+      return res.json({ success: true, message: `Road segment '${deleted.roadName}' removed.` });
     }
     MemoryStore.deleteRoad(req.params.id);
     return res.json({ success: true, message: `Road segment removed.` });
@@ -436,14 +448,15 @@ router.patch("/incidents/:id/status", authenticate, requireRole("ADMIN"), async 
   try {
     const { status } = req.body;
     if (global.isMongoConnected) {
-      try {
-        const updated = await Incident.findByIdAndUpdate(
-          req.params.id,
-          { status },
-          { new: true }
-        );
-        if (updated) return res.json({ success: true, data: updated, message: `Incident marked as ${status}.` });
-      } catch (e) {}
+      const updated = await Incident.findByIdAndUpdate(
+        req.params.id,
+        { status },
+        { new: true }
+      );
+      if (!updated) {
+        return res.status(404).json({ success: false, message: "Incident not found." });
+      }
+      return res.json({ success: true, data: updated, message: `Incident marked as ${status}.` });
     }
     const memUpdated = MemoryStore.updateIncidentStatus(req.params.id, status);
     return res.json({ success: true, data: memUpdated, message: `Incident marked as ${status}.` });
@@ -455,9 +468,11 @@ router.patch("/incidents/:id/status", authenticate, requireRole("ADMIN"), async 
 router.delete("/incidents/:id", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {
-      try {
-        await Incident.findByIdAndDelete(req.params.id);
-      } catch (e) {}
+      const deleted = await Incident.findByIdAndDelete(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ success: false, message: "Incident not found." });
+      }
+      return res.json({ success: true, message: "Incident deleted." });
     }
     MemoryStore.deleteIncident(req.params.id);
     return res.json({ success: true, message: "Incident deleted." });
@@ -467,19 +482,17 @@ router.delete("/incidents/:id", authenticate, requireRole("ADMIN"), async (req, 
 });
 
 // ==========================================
-// 5. DATABASE RE-SEED & SIREN BROADCAST
+// 5. DATABASE SYNC / RE-SEED & SIREN BROADCAST
 // ==========================================
 router.post("/reseed", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {
-      try {
-        const result = await runSeed();
-        return res.json({
-          success: true,
-          message: "FlowSense MongoDB successfully re-seeded with multi-city traffic memory!",
-          data: result
-        });
-      } catch (e) {}
+      const result = await runSeed({ preserveUserRecords: true });
+      return res.json({
+        success: true,
+        message: "FlowSense database synchronized with multi-city corridors & live weather telemetry!",
+        data: result
+      });
     }
     return res.json({
       success: true,
@@ -505,15 +518,13 @@ router.post("/broadcast-alert", authenticate, requireRole("ADMIN"), async (req, 
     };
 
     if (global.isMongoConnected) {
-      try {
-        const advisory = new Advisory(alertData);
-        const saved = await advisory.save();
-        return res.status(201).json({
-          success: true,
-          message: "Emergency Siren Broadcast issued to all portals.",
-          data: saved
-        });
-      } catch (e) {}
+      const advisory = new Advisory(alertData);
+      const saved = await advisory.save();
+      return res.status(201).json({
+        success: true,
+        message: "Emergency Siren Broadcast issued to all portals.",
+        data: saved
+      });
     }
 
     const savedMem = MemoryStore.createAdvisory(alertData);

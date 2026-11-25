@@ -8,10 +8,11 @@ const RoadSegment = require("../models/RoadSegment");
 const matchRoadSegments = require("../utils/matchRoadSegments");
 const Incident = require('../models/Incident');
 const Weather = require('../models/Weather');
+const RouteSearch = require('../models/RouteSearch');
 const { fetchRealTimeWeather } = require("../utils/liveWeather");
 const { reverseGeocode, fetchNearbyEmergencyServices, autocompleteLocationIndia } = require("../utils/realTimeServices");
 const generateRecommendations = require("../utils/recommendationEngine");
-const { optionalAuthenticate } = require("../middleware/auth");
+const { authenticate, optionalAuthenticate, requireRole } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -40,7 +41,7 @@ function getIstDayAndHour() {
 // SEARCH ROUTES
 // ==========================================
 
-router.post("/search", async (req, res) => {
+router.post("/search", optionalAuthenticate, async (req, res) => {
   try {
     const { from, to } = req.body || {};
 
@@ -76,8 +77,8 @@ router.post("/search", async (req, res) => {
       });
     }
 
-    console.log("FROM:", fromLocation);
-    console.log("TO:", toLocation);
+    // debug removed
+    // debug removed
 
     // 3. GET ROUTES FROM OSRM
     const routeData = await getRoute(
@@ -99,7 +100,7 @@ router.post("/search", async (req, res) => {
       });
     }
 
-    console.log("OSRM ROUTES FOUND:", routeData.routes.length);
+    // OSRM routes fetched
 
     // 4. GET CURRENT IST DAY & HOUR + LIVE DESTINATION WEATHER/AQI
     const { dayOfWeek, currentHour } = getIstDayAndHour();
@@ -151,15 +152,9 @@ router.post("/search", async (req, res) => {
           matchedRoadId = matchedSegments[0].roadId;
           matchedRoadName = matchedSegments[0].roadName;
 
-          console.log(
-            `Route ${index + 1} matched:`,
-            matchedRoadId,
-            matchedRoadName
-          );
+          // matched road segment
         } else {
-          console.log(
-            `Route ${index + 1}: no registered road segment matched.`
-          );
+          // no registered road segment matched
         }
       } catch (matchError) {
         // A matching error should not remove a valid OSRM route.
@@ -413,7 +408,63 @@ router.post("/search", async (req, res) => {
       }
     }
 
-    console.log("FINAL ROUTES RETURNED:", routes.length);
+    // routes returned
+
+    // 11B. PERSIST ROUTE SEARCH & LIVE TRAFFIC OBSERVATION TO MONGODB
+    if (global.isMongoConnected && routes.length > 0) {
+      try {
+        const best = routes[0];
+        const parts = String(toLocation.displayName || "").split(",").map((s) => s.trim()).filter(Boolean);
+        const inferredCity = best?.weather?.city || (parts.length >= 3 ? parts[parts.length - 3] : destinationCityHint) || "India";
+        const inferredState = best?.weather?.state || (parts.length >= 2 ? parts[parts.length - 2] : "India");
+
+        await RouteSearch.create({
+          fromQuery: from.trim(),
+          toQuery: to.trim(),
+          fromName: fromLocation.displayName,
+          toName: toLocation.displayName,
+          fromCoords: { latitude: fromLocation.latitude, longitude: fromLocation.longitude },
+          toCoords: { latitude: toLocation.latitude, longitude: toLocation.longitude },
+          city: inferredCity,
+          state: inferredState,
+          recommendedRoadId: best.roadId || null,
+          recommendedRoadName: best.roadName || "",
+          distanceKm: best.distance || 0,
+          currentTimeMin: best.currentTime || 0,
+          predictedTimeMin: best.predictedTime || 0,
+          stabilityScore: Number.isFinite(best.stabilityScore) ? best.stabilityScore : null,
+          congestion: best.congestion || "LOW",
+          weatherCondition: best.weather?.condition || "",
+          weatherTemp: Number.isFinite(best.weather?.temperature) ? best.weather.temperature : null,
+          userId: req.user?._id || null,
+          userRole: req.user?.role || "GUEST",
+          searchedAt: new Date()
+        });
+
+        const liveRoadId =
+          best.roadId ||
+          `LIVE_${String(inferredCity).replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 10) || "INDIA"}`;
+        const liveSpeed = Number(
+          best.trafficPrediction?.predictedSpeed ||
+          Math.max(16, Number(((best.distance / Math.max(1, best.predictedTime)) * 60).toFixed(1)))
+        );
+        const liveCongestion = ["LOW", "MEDIUM", "HIGH"].includes(best.congestion) ? best.congestion : "LOW";
+        const liveVehicles = liveCongestion === "HIGH" ? 240 : liveCongestion === "MEDIUM" ? 145 : 68;
+
+        await TrafficRecord.create({
+          roadId: liveRoadId,
+          roadName: best.roadName || `${inferredCity} Live Corridor`,
+          timestamp: new Date(),
+          dayOfWeek,
+          hour: currentHour,
+          vehicleCount: liveVehicles,
+          averageSpeed: liveSpeed,
+          congestionLevel: liveCongestion
+        });
+      } catch (syncErr) {
+        console.warn("Search telemetry MongoDB sync warning:", syncErr.message);
+      }
+    }
 
     // 12. SEND RESPONSE
     return res.json({
@@ -1156,12 +1207,35 @@ router.get("/analytics/:roadId", async (req, res) => {
   }
 });
 
+// RECENT ROUTE SEARCH TELEMETRY (MongoDB synced)
+router.get("/recent-searches", optionalAuthenticate, async (req, res) => {
+  try {
+    if (!global.isMongoConnected) {
+      return res.json({ success: true, count: 0, data: [] });
+    }
+    const filter = req.user ? { userId: req.user._id } : {};
+    const limit = req.user ? 20 : 8;
+    const rows = await RouteSearch.find(filter).sort({ searchedAt: -1 }).limit(limit).lean();
+    const safe = req.user
+      ? rows
+      : rows.map((r) => {
+          const copy = { ...r };
+          delete copy.userId;
+          return copy;
+        });
+    return res.json({ success: true, count: safe.length, data: safe });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to load search history." });
+  }
+});
+
 // INCIDENTS - POST /incidents (Allows anyone to report any hazard with AI recommendations)
 router.post('/incidents', async (req, res) => {
   try {
     const {
       roadId,
       roadName,
+      state = '',
       city = 'General',
       type = 'ACCIDENT',
       severity = 'MEDIUM',
@@ -1178,49 +1252,54 @@ router.post('/incidents', async (req, res) => {
     const cleanRoadId = roadId && roadId.trim() ? roadId.trim() : `HAZ_${Date.now().toString(36).toUpperCase()}`;
     const cleanRoadName = roadName && roadName.trim() ? roadName.trim() : (location || `${city} Road Hazard`);
 
+    const ALLOWED_TYPES = new Set([
+      'ACCIDENT', 'CONSTRUCTION', 'FLOOD', 'WATERLOGGING', 'BREAKDOWN',
+      'POTHOLE', 'TRAFFIC_JAM', 'ROADBLOCK', 'FIRE_HAZARD', 'STALLED_VEHICLE', 'DEBRIS', 'OTHER'
+    ]);
+    const rawType = String(type || 'ACCIDENT').trim().toUpperCase().replace(/[\s-]+/g, '_');
+    const normalizedType = ALLOWED_TYPES.has(rawType) ? rawType : 'OTHER';
+    const rawSev = String(severity || 'MEDIUM').trim().toUpperCase();
+    const normalizedSeverity = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(rawSev) ? rawSev : 'MEDIUM';
+
     // Generate intelligent AI recommendations for both Commuter safety & Police response
     const { driverRecommendation, policeActionPlan } = generateRecommendations(
-      type,
-      severity,
+      normalizedType,
+      normalizedSeverity,
       cleanRoadName,
       city
     );
 
     let saved = null;
     if (global.isMongoConnected) {
-      try {
-        const incident = new Incident({
-          roadId: cleanRoadId,
-          roadName: cleanRoadName,
-          city: city.trim(),
-          type,
-          severity,
-          description: description.trim(),
-          landmark: landmark.trim(),
-          recommendation: driverRecommendation,
-          reportedBy: reportedBy.trim() || 'Citizen Commuter',
-          reporterEmail: String(reporterEmail || '').trim().toLowerCase(),
-          contactPhone: contactPhone.trim(),
-          location: location.trim() || cleanRoadName,
-          images: Array.isArray(images) ? images.slice(0, 3) : [],
-          upvotes: 1,
-          coordinates: coordinates || null,
-          status: 'ACTIVE'
-        });
-        saved = await incident.save();
-      } catch (e) {
-        saved = null;
-      }
-    }
-
-    if (!saved) {
+      const incident = new Incident({
+        roadId: cleanRoadId,
+        roadName: cleanRoadName,
+        state: String(state || '').trim(),
+        city: city.trim(),
+        type: normalizedType,
+        severity: normalizedSeverity,
+        description: description.trim(),
+        landmark: landmark.trim(),
+        recommendation: driverRecommendation,
+        reportedBy: reportedBy.trim() || 'Citizen Commuter',
+        reporterEmail: String(reporterEmail || '').trim().toLowerCase(),
+        contactPhone: contactPhone.trim(),
+        location: location.trim() || cleanRoadName,
+        images: Array.isArray(images) ? images.slice(0, 3) : [],
+        upvotes: 1,
+        coordinates: coordinates || null,
+        status: 'ACTIVE'
+      });
+      saved = await incident.save();
+    } else {
       const MemoryStore = require("../utils/memoryStore");
       saved = MemoryStore.createIncident({
         roadId: cleanRoadId,
         roadName: cleanRoadName,
+        state: String(state || '').trim(),
         city: city.trim(),
-        type,
-        severity,
+        type: normalizedType,
+        severity: normalizedSeverity,
         description: description.trim(),
         landmark: landmark.trim(),
         recommendation: driverRecommendation,
@@ -1324,26 +1403,28 @@ router.get('/incidents/road/:roadId', optionalAuthenticate, async (req, res) => 
   }
 });
 
-// INCIDENTS - PATCH resolve
-router.patch('/incidents/:id/resolve', async (req, res) => {
+// INCIDENTS - PATCH resolve (Authority / Admin)
+router.patch('/incidents/:id/resolve', authenticate, requireRole('AUTHORITY', 'ADMIN'), async (req, res) => {
   try {
     if (global.isMongoConnected) {
-      try {
-        const incident = await Incident.findByIdAndUpdate(req.params.id, { status: 'RESOLVED' }, { new: true });
-        if (incident) return res.json({ success: true, message: 'Incident resolved.', data: incident });
-      } catch (e) {}
+      const incident = await Incident.findByIdAndUpdate(req.params.id, { status: 'RESOLVED' }, { new: true });
+      if (!incident) {
+        return res.status(404).json({ success: false, message: 'Incident not found.' });
+      }
+      return res.json({ success: true, message: 'Incident resolved.', data: incident });
     }
     const MemoryStore = require("../utils/memoryStore");
     const memInc = MemoryStore.updateIncidentStatus(req.params.id, 'RESOLVED');
+    if (!memInc) {
+      return res.status(404).json({ success: false, message: 'Incident not found.' });
+    }
     return res.json({ success: true, message: 'Incident resolved.', data: memInc });
   } catch (error) {
-    const MemoryStore = require("../utils/memoryStore");
-    const memInc = MemoryStore.updateIncidentStatus(req.params.id, 'RESOLVED');
-    return res.json({ success: true, message: 'Incident resolved.', data: memInc });
+    return res.status(500).json({ success: false, message: 'Failed to resolve incident: ' + error.message });
   }
 });
 
-// WEATHER - GET Real-Time API for Any City (Open-Meteo live meteorological grid)
+// WEATHER - GET Real-Time API for Any City (Open-Meteo live meteorological grid + auto MongoDB upsert)
 router.get('/weather/:city', async (req, res) => {
   try {
     const cityName = req.params.city || 'Delhi';
@@ -1358,9 +1439,9 @@ router.get('/weather/:city', async (req, res) => {
 // WEATHER - POST
 router.post('/weather', async (req, res) => {
   try {
-    const { location, city, temperature, humidity, rainfall, windSpeed, condition, visibility } = req.body;
+    const { location, city, state, temperature, humidity, rainfall, windSpeed, condition, visibility } = req.body;
     if (!location) return res.status(400).json({ success: false, message: 'location is required.' });
-    const weather = new Weather({ location, city, temperature, humidity, rainfall, windSpeed, condition, visibility });
+    const weather = new Weather({ location, city, state, temperature, humidity, rainfall, windSpeed, condition, visibility });
     const saved = await weather.save();
     return res.status(201).json({ success: true, data: saved });
   } catch (error) { return res.status(500).json({ success: false, message: 'Failed to save weather.' }); }
@@ -1375,9 +1456,10 @@ router.post('/incidents/:id/upvote', async (req, res) => {
         { $inc: { upvotes: 1 } },
         { new: true }
       );
-      if (updated) {
-        return res.json({ success: true, data: updated, message: 'Hazard confirmed by commuter.' });
+      if (!updated) {
+        return res.status(404).json({ success: false, message: 'Incident not found.' });
       }
+      return res.json({ success: true, data: updated, message: 'Hazard confirmed by commuter.' });
     }
     const MemoryStore = require("../utils/memoryStore");
     const memUpdated = MemoryStore.upvoteIncident(req.params.id);

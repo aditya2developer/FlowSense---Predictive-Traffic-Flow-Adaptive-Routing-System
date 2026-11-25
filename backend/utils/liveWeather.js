@@ -2,7 +2,40 @@
  * FlowSense Real-Time Meteorological API Client
  * Powered by Open-Meteo live weather grid (Real-time global weather, no API key required).
  * Provides Pan-India coverage for all 28 States, 8 UTs, and dynamic geocoding for ANY city in India.
+ * Automatically persists fresh weather snapshots into MongoDB when connected.
  */
+const Weather = require("../models/Weather");
+
+async function persistWeatherSnapshot(result) {
+  if (!global.isMongoConnected || !result || !result.city) return;
+  try {
+    await Weather.findOneAndUpdate(
+      { city: new RegExp(`^${String(result.city).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+      {
+        $set: {
+          location: result.location || `${result.city}, ${result.state || "India"}`,
+          city: result.city,
+          state: result.state || "India",
+          latitude: result.latitude,
+          longitude: result.longitude,
+          temperature: result.temperature,
+          humidity: result.humidity,
+          rainfall: result.rainfall || 0,
+          windSpeed: result.windSpeed || 0,
+          condition: result.condition || "Clear",
+          visibility: result.visibility ?? 8,
+          aqi: result.aqi || null,
+          isLiveApi: Boolean(result.isLiveApi),
+          source: result.source || "Open-Meteo Real-Time Weather & AQI Grid",
+          timestamp: new Date()
+        }
+      },
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    console.warn(`Weather MongoDB sync warning (${result.city}):`, err.message);
+  }
+}
 
 const PAN_INDIA_COORDINATES = {
   // National Capital & Northern Hubs
@@ -285,6 +318,7 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
       };
 
       weatherCache.set(cleanCity, { timestamp: Date.now(), data: result });
+      await persistWeatherSnapshot(result);
       return result;
     }
   } catch (err) {
@@ -314,5 +348,6 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
 
 module.exports = {
   fetchRealTimeWeather,
+  persistWeatherSnapshot,
   PAN_INDIA_COORDINATES
 };

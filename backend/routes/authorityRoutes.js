@@ -47,23 +47,19 @@ router.post("/advisories", authenticate, requireRole("AUTHORITY", "ADMIN"), asyn
     }
 
     if (global.isMongoConnected) {
-      try {
-        const advisory = new Advisory({
-          title,
-          message,
-          severity: severity || "INFO",
-          affectedRoad: affectedRoad || "General Corridor",
-          issuedBy: `${req.user.name} (${req.user.department || "Traffic Authority"})`
-        });
-        const saved = await advisory.save();
-        return res.status(201).json({
-          success: true,
-          message: "Traffic advisory broadcast successfully.",
-          data: saved
-        });
-      } catch (e) {
-        // Fall back to memory store
-      }
+      const advisory = new Advisory({
+        title,
+        message,
+        severity: severity || "INFO",
+        affectedRoad: affectedRoad || "General Corridor",
+        issuedBy: `${req.user.name} (${req.user.department || "Traffic Authority"})`
+      });
+      const saved = await advisory.save();
+      return res.status(201).json({
+        success: true,
+        message: "Traffic advisory broadcast successfully.",
+        data: saved
+      });
     }
 
     const savedMem = MemoryStore.createAdvisory({
@@ -88,16 +84,13 @@ router.post("/advisories", authenticate, requireRole("AUTHORITY", "ADMIN"), asyn
 router.patch("/advisories/:id/expire", authenticate, requireRole("AUTHORITY", "ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {
-      try {
-        const updated = await Advisory.findByIdAndUpdate(
-          req.params.id,
-          { status: "EXPIRED" },
-          { new: true }
-        );
-        if (updated) return res.json({ success: true, data: updated });
-      } catch (e) {
-        // Fall back
-      }
+      const updated = await Advisory.findByIdAndUpdate(
+        req.params.id,
+        { status: "EXPIRED" },
+        { new: true }
+      );
+      if (!updated) return res.status(404).json({ success: false, message: "Advisory not found." });
+      return res.json({ success: true, data: updated });
     }
     const memUpdated = MemoryStore.expireAdvisory(req.params.id);
     return res.json({ success: true, data: memUpdated });
@@ -147,12 +140,8 @@ router.post("/green-corridor", authenticate, requireRole("AUTHORITY", "ADMIN"), 
     };
 
     if (global.isMongoConnected) {
-      try {
-        const advisory = new Advisory(advisoryData);
-        await advisory.save();
-      } catch (e) {
-        MemoryStore.createAdvisory(advisoryData);
-      }
+      const advisory = new Advisory(advisoryData);
+      await advisory.save();
     } else {
       MemoryStore.createAdvisory(advisoryData);
     }

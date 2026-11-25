@@ -4,6 +4,7 @@ const incidentSchema = new mongoose.Schema(
   {
     roadId: { type: String, required: true },
     roadName: { type: String, required: true },
+    state: { type: String, default: "" },
     city: { type: String, default: "General" },
     type: {
       type: String,
@@ -11,6 +12,7 @@ const incidentSchema = new mongoose.Schema(
         "ACCIDENT",
         "CONSTRUCTION",
         "FLOOD",
+        "WATERLOGGING",
         "BREAKDOWN",
         "POTHOLE",
         "TRAFFIC_JAM",

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from "react";
 import { findCityEntry } from "../utils/indiaLocations";
-import { reverseGeocodeCoords } from "../api";
+import { reverseGeocodeCoords, updateActiveLocation } from "../api";
 
 const CityContext = createContext(null);
 
@@ -48,6 +48,10 @@ export function CityProvider({ children }) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
       // ignore storage quota errors
+    }
+    // fire-and-forget sync to MongoDB if user is authenticated
+    if (localStorage.getItem("flowsense_token")) {
+      updateActiveLocation(next.city, next.state).catch(() => {});
     }
   }
 

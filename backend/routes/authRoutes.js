@@ -52,6 +52,8 @@ function formatSafeUser(user) {
     stationName: u.stationName || "",
     city: u.city || "",
     state: u.state || "",
+    lastActiveCity: u.lastActiveCity || "",
+    lastActiveState: u.lastActiveState || "",
     phone: u.phone || "",
     emergencyContact: u.emergencyContact || "",
     vehicleInfo: u.vehicleInfo || "",
@@ -494,7 +496,13 @@ router.post("/register", async (req, res) => {
           user: formatSafeUser(newUser)
         });
       } catch (err) {
-        console.warn("MongoDB register fallback warning:", err.message);
+        if (err && err.code === 11000) {
+          return res.status(400).json({
+            success: false,
+            message: "An account with this email already exists."
+          });
+        }
+        throw err;
       }
     }
 
@@ -553,6 +561,39 @@ router.get("/me", authenticate, (req, res) => {
     success: true,
     user: formatSafeUser(req.user)
   });
+});
+
+// ==========================================
+// PATCH /api/auth/active-location
+// Syncs currently viewed State & City preference to MongoDB without mutating verified identity fields
+// ==========================================
+router.patch("/active-location", authenticate, async (req, res) => {
+  try {
+    const city = String(req.body?.city || "").trim();
+    const state = String(req.body?.state || "").trim();
+    if (!city) {
+      return res.status(400).json({ success: false, message: "City is required." });
+    }
+
+    if (global.isMongoConnected) {
+      const updated = await User.findByIdAndUpdate(
+        req.user._id,
+        { $set: { lastActiveCity: city, lastActiveState: state } },
+        { new: true }
+      ).select("-password");
+      if (updated) {
+        return res.json({ success: true, user: formatSafeUser(updated) });
+      }
+    }
+
+    const mem = MemoryStore.updateUserProfile(req.user._id, {
+      lastActiveCity: city,
+      lastActiveState: state
+    });
+    return res.json({ success: true, user: formatSafeUser(mem || req.user) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to sync active city." });
+  }
 });
 
 // ==========================================

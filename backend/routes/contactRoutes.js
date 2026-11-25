@@ -126,27 +126,21 @@ router.post("/", async (req, res) => {
 
     let saved = null;
     if (global.isMongoConnected) {
-      try {
-        const contact = new ContactMessage({
-          ticketId,
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          phone: phone ? phone.trim() : "",
-          state: state || "National / Pan-India",
-          city: city || "General",
-          category: category || "GENERAL_INQUIRY",
-          subject: subject.trim(),
-          message: message.trim(),
-          priority,
-          status: "OPEN"
-        });
-        saved = await contact.save();
-      } catch (e) {
-        saved = null;
-      }
-    }
-
-    if (!saved) {
+      const contact = new ContactMessage({
+        ticketId,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone ? phone.trim() : "",
+        state: state || "National / Pan-India",
+        city: city || "General",
+        category: category || "GENERAL_INQUIRY",
+        subject: subject.trim(),
+        message: message.trim(),
+        priority,
+        status: "OPEN"
+      });
+      saved = await contact.save();
+    } else {
       saved = MemoryStore.addContactMessage({
         ticketId,
         name: name.trim(),
@@ -180,12 +174,40 @@ router.post("/", async (req, res) => {
 // GET /api/contact/tickets — Admin Oversight
 router.get("/tickets", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
+    if (!global.isMongoConnected) {
+      return res.json({ success: true, count: 0, data: [] });
+    }
     const tickets = await ContactMessage.find().sort({ createdAt: -1 }).limit(100);
     return res.json({
       success: true,
       count: tickets.length,
       data: tickets
     });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// PATCH /api/contact/tickets/:id — Admin updates ticket status cleanly in MongoDB
+router.patch("/tickets/:id", authenticate, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const { status, assignedOfficer } = req.body || {};
+    const updates = {};
+    if (status && ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"].includes(status)) {
+      updates.status = status;
+    }
+    if (assignedOfficer !== undefined) {
+      updates.assignedOfficer = String(assignedOfficer).trim();
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, message: "No valid ticket updates provided." });
+    }
+
+    const updated = await ContactMessage.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Support ticket not found." });
+    }
+    return res.json({ success: true, data: updated, message: `Ticket updated to ${updated.status}.` });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
