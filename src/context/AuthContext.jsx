@@ -9,6 +9,9 @@ import {
 
 const AuthContext = createContext(null);
 
+// How long a verified session stays trusted without re-checking the backend (ms)
+const SESSION_TRUST_MS = 5 * 60 * 1000; // 5 minutes
+
 function isTokenStructurallyValid(tok) {
   if (!tok || typeof tok !== "string") return false;
   const parts = tok.split(".");
@@ -33,13 +36,16 @@ function readInitialSession() {
     if (!savedToken || !isTokenStructurallyValid(savedToken) || !savedUser) {
       localStorage.removeItem("flowsense_token");
       localStorage.removeItem("flowsense_user");
-      return { token: null, user: null };
+      return { token: null, user: null, freshEnough: false };
     }
-    return { token: savedToken, user: JSON.parse(savedUser) };
+    // Check if this session was recently verified — skip backend round-trip if so
+    const verifiedAt = Number(localStorage.getItem("flowsense_verified_at") || "0");
+    const freshEnough = Date.now() - verifiedAt < SESSION_TRUST_MS;
+    return { token: savedToken, user: JSON.parse(savedUser), freshEnough };
   } catch {
     localStorage.removeItem("flowsense_token");
     localStorage.removeItem("flowsense_user");
-    return { token: null, user: null };
+    return { token: null, user: null, freshEnough: false };
   }
 }
 
@@ -47,10 +53,13 @@ export function AuthProvider({ children }) {
   const [initialSession] = useState(readInitialSession);
   const [user, setUser] = useState(initialSession.user);
   const [token, setToken] = useState(initialSession.token);
-  const [loading, setLoading] = useState(Boolean(initialSession.token));
-  const verifiedTokenRef = useRef(null);
+  // If session is fresh enough (recently verified), skip loading state entirely
+  const [loading, setLoading] = useState(
+    Boolean(initialSession.token) && !initialSession.freshEnough
+  );
+  const verifiedTokenRef = useRef(initialSession.freshEnough ? initialSession.token : null);
 
-  // Verify stored token with backend before allowing protected/main routes
+  // Verify stored token with backend — skipped if recently verified (multi-tab instant open)
   useEffect(() => {
     if (!token || verifiedTokenRef.current === token) return undefined;
     let active = true;
@@ -60,15 +69,18 @@ export function AuthProvider({ children }) {
         if (!active) return;
         if (res.success && res.user) {
           verifiedTokenRef.current = token;
+          localStorage.setItem("flowsense_verified_at", String(Date.now()));
           setUser(res.user);
           localStorage.setItem("flowsense_user", JSON.stringify(res.user));
         } else if (res.httpStatus === 401 || res.httpStatus === 403 || !isTokenStructurallyValid(token)) {
           verifiedTokenRef.current = null;
+          localStorage.removeItem("flowsense_verified_at");
           setUser(null);
           setToken(null);
           localStorage.removeItem("flowsense_token");
           localStorage.removeItem("flowsense_user");
         }
+        // On network errors / 5xx — keep the cached user, don't lock the user out
       })
       .catch(() => {})
       .finally(() => {
@@ -80,12 +92,32 @@ export function AuthProvider({ children }) {
     };
   }, [token]);
 
+  // Listen for logout in another tab (storage event) — keep all tabs in sync
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key === "flowsense_token" && !e.newValue) {
+        // Another tab cleared the token (logout) — mirror it here
+        verifiedTokenRef.current = null;
+        setUser(null);
+        setToken(null);
+        setLoading(false);
+      }
+      if (e.key === "flowsense_token" && e.newValue && e.newValue !== token) {
+        // Another tab logged in with a different token — reload to sync
+        window.location.reload();
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [token]);
+
   async function refreshUser() {
     if (!token) return null;
     try {
       const res = await fetchCurrentUser();
       if (res.success && res.user) {
         verifiedTokenRef.current = token;
+        localStorage.setItem("flowsense_verified_at", String(Date.now()));
         setUser(res.user);
         localStorage.setItem("flowsense_user", JSON.stringify(res.user));
         return res.user;
@@ -109,6 +141,7 @@ export function AuthProvider({ children }) {
       setLoading(false);
       localStorage.setItem("flowsense_token", res.token);
       localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+      localStorage.setItem("flowsense_verified_at", String(Date.now()));
     }
     return res;
   }
@@ -123,6 +156,7 @@ export function AuthProvider({ children }) {
       setLoading(false);
       localStorage.setItem("flowsense_token", res.token);
       localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+      localStorage.setItem("flowsense_verified_at", String(Date.now()));
     }
     return res;
   }
@@ -153,6 +187,7 @@ export function AuthProvider({ children }) {
     setLoading(false);
     localStorage.removeItem("flowsense_token");
     localStorage.removeItem("flowsense_user");
+    localStorage.removeItem("flowsense_verified_at");
   }
 
   const isAuthenticated = Boolean(user && token);
