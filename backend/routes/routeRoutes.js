@@ -1207,23 +1207,15 @@ router.get("/analytics/:roadId", async (req, res) => {
   }
 });
 
-// RECENT ROUTE SEARCH TELEMETRY (MongoDB synced)
-router.get("/recent-searches", optionalAuthenticate, async (req, res) => {
+// RECENT ROUTE SEARCH TELEMETRY (MongoDB synced, authenticated per user)
+router.get("/recent-searches", authenticate, async (req, res) => {
   try {
     if (!global.isMongoConnected) {
       return res.json({ success: true, count: 0, data: [] });
     }
-    const filter = req.user ? { userId: req.user._id } : {};
-    const limit = req.user ? 20 : 8;
-    const rows = await RouteSearch.find(filter).sort({ searchedAt: -1 }).limit(limit).lean();
-    const safe = req.user
-      ? rows
-      : rows.map((r) => {
-          const copy = { ...r };
-          delete copy.userId;
-          return copy;
-        });
-    return res.json({ success: true, count: safe.length, data: safe });
+    const filter = req.user.role === "ADMIN" ? {} : { userId: req.user._id };
+    const rows = await RouteSearch.find(filter).sort({ searchedAt: -1 }).limit(20).lean();
+    return res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Failed to load search history." });
   }

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import {
   loginUser,
   registerUser,
@@ -9,33 +9,75 @@ import {
 
 const AuthContext = createContext(null);
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem("flowsense_user");
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
+function isTokenStructurallyValid(tok) {
+  if (!tok || typeof tok !== "string") return false;
+  const parts = tok.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+    const payload = JSON.parse(atob(padded));
+    if (payload.exp && payload.exp * 1000 <= Date.now()) {
+      return false;
     }
-  });
-  const [token, setToken] = useState(() => localStorage.getItem("flowsense_token"));
-  const [loading, setLoading] = useState(!user);
+    return Boolean(payload.id || payload.email);
+  } catch {
+    return false;
+  }
+}
 
-  // Re-verify session against backend in background without blocking UI
-  useEffect(() => {
-    if (token) {
-      fetchCurrentUser()
-        .then((res) => {
-          if (res.success && res.user) {
-            setUser(res.user);
-            localStorage.setItem("flowsense_user", JSON.stringify(res.user));
-          }
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
+function readInitialSession() {
+  try {
+    const savedToken = localStorage.getItem("flowsense_token");
+    const savedUser = localStorage.getItem("flowsense_user");
+    if (!savedToken || !isTokenStructurallyValid(savedToken) || !savedUser) {
+      localStorage.removeItem("flowsense_token");
+      localStorage.removeItem("flowsense_user");
+      return { token: null, user: null };
     }
+    return { token: savedToken, user: JSON.parse(savedUser) };
+  } catch {
+    localStorage.removeItem("flowsense_token");
+    localStorage.removeItem("flowsense_user");
+    return { token: null, user: null };
+  }
+}
+
+export function AuthProvider({ children }) {
+  const [initialSession] = useState(readInitialSession);
+  const [user, setUser] = useState(initialSession.user);
+  const [token, setToken] = useState(initialSession.token);
+  const [loading, setLoading] = useState(Boolean(initialSession.token));
+  const verifiedTokenRef = useRef(null);
+
+  // Verify stored token with backend before allowing protected/main routes
+  useEffect(() => {
+    if (!token || verifiedTokenRef.current === token) return undefined;
+    let active = true;
+
+    fetchCurrentUser()
+      .then((res) => {
+        if (!active) return;
+        if (res.success && res.user) {
+          verifiedTokenRef.current = token;
+          setUser(res.user);
+          localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+        } else if (res.httpStatus === 401 || res.httpStatus === 403 || !isTokenStructurallyValid(token)) {
+          verifiedTokenRef.current = null;
+          setUser(null);
+          setToken(null);
+          localStorage.removeItem("flowsense_token");
+          localStorage.removeItem("flowsense_user");
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [token]);
 
   async function refreshUser() {
@@ -43,9 +85,13 @@ export function AuthProvider({ children }) {
     try {
       const res = await fetchCurrentUser();
       if (res.success && res.user) {
+        verifiedTokenRef.current = token;
         setUser(res.user);
         localStorage.setItem("flowsense_user", JSON.stringify(res.user));
         return res.user;
+      }
+      if (res.httpStatus === 401 || res.httpStatus === 403) {
+        logout();
       }
     } catch {
       // keep cached user if transient network error
@@ -57,8 +103,10 @@ export function AuthProvider({ children }) {
   async function login(email, password, role, captchaToken, captchaAnswer) {
     const res = await loginUser(email, password, role, captchaToken, captchaAnswer);
     if (res.success && res.token && res.user) {
+      verifiedTokenRef.current = res.token;
       setUser(res.user);
       setToken(res.token);
+      setLoading(false);
       localStorage.setItem("flowsense_token", res.token);
       localStorage.setItem("flowsense_user", JSON.stringify(res.user));
     }
@@ -69,8 +117,10 @@ export function AuthProvider({ children }) {
   async function register(userData) {
     const res = await registerUser(userData);
     if (res.success && res.token && res.user) {
+      verifiedTokenRef.current = res.token;
       setUser(res.user);
       setToken(res.token);
+      setLoading(false);
       localStorage.setItem("flowsense_token", res.token);
       localStorage.setItem("flowsense_user", JSON.stringify(res.user));
     }
@@ -97,8 +147,10 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
+    verifiedTokenRef.current = null;
     setUser(null);
     setToken(null);
+    setLoading(false);
     localStorage.removeItem("flowsense_token");
     localStorage.removeItem("flowsense_user");
   }
@@ -135,6 +187,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {

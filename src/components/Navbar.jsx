@@ -21,8 +21,9 @@ import {
 import { useState, useRef, useEffect } from "react";
 
 function Navbar() {
-  const { user, role, isAdmin, isAuthority, logout, isAuthenticated } = useAuth();
+  const { user, role, isAdmin, isAuthority, logout, isAuthenticated, loading } = useAuth();
   const { activeCity, openCityModal } = useCity();
+  const showAuthenticatedNav = isAuthenticated && !loading;
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -56,7 +57,7 @@ function Navbar() {
       <div className="navbar-ambient-border" />
       <div className="navbar-inner-ambient">
         {/* BRAND LOGO */}
-        <NavLink to="/" className="navbar-brand-ambient">
+        <NavLink to={showAuthenticatedNav ? "/" : "/login"} className="navbar-brand-ambient">
           <div className="brand-logo-hex">
             <span className="logo-traffic-lights">🚦</span>
           </div>
@@ -66,78 +67,82 @@ function Navbar() {
           </div>
         </NavLink>
 
-        {/* NAVIGATION LINKS */}
-        <nav className="nav-links-ambient">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
-          >
-            <Compass size={16} /> <span>Route Finder</span>
-          </NavLink>
-
-          <NavLink
-            to="/dashboard"
-            className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
-          >
-            <BarChart3 size={16} /> <span>Live Analytics</span>
-          </NavLink>
-
-          {isAuthority && (
+        {/* NAVIGATION LINKS (Authenticated users only) */}
+        {showAuthenticatedNav && (
+          <nav className="nav-links-ambient">
             <NavLink
-              to="/authority"
-              className={({ isActive }) => `ambient-nav-link link-authority ${isActive ? "active-ambient-cyan" : ""}`}
+              to="/"
+              end
+              className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
             >
-              <Radio size={16} /> <span>Police Command</span>
+              <Compass size={16} /> <span>Route Finder</span>
             </NavLink>
-          )}
 
-          {isAdmin && (
-            <>
+            <NavLink
+              to="/dashboard"
+              className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
+            >
+              <BarChart3 size={16} /> <span>Live Analytics</span>
+            </NavLink>
+
+            {isAuthority && (
               <NavLink
-                to="/admin"
-                className={({ isActive }) => `ambient-nav-link link-admin ${isActive ? "active-ambient-purple" : ""}`}
+                to="/authority"
+                className={({ isActive }) => `ambient-nav-link link-authority ${isActive ? "active-ambient-cyan" : ""}`}
               >
-                <Shield size={16} /> <span>Admin Console</span>
+                <Radio size={16} /> <span>Police Command</span>
               </NavLink>
-              <NavLink
-                to="/database"
-                className={({ isActive }) => `ambient-nav-link link-database ${isActive ? "active-ambient-emerald" : ""}`}
-              >
-                <Database size={16} /> <span>Data Explorer</span>
-              </NavLink>
-            </>
-          )}
+            )}
 
-          <NavLink
-            to="/report"
-            className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
-          >
-            <AlertTriangle size={16} /> <span>Report Hazard</span>
-          </NavLink>
+            {isAdmin && (
+              <>
+                <NavLink
+                  to="/admin"
+                  className={({ isActive }) => `ambient-nav-link link-admin ${isActive ? "active-ambient-purple" : ""}`}
+                >
+                  <Shield size={16} /> <span>Admin Console</span>
+                </NavLink>
+                <NavLink
+                  to="/database"
+                  className={({ isActive }) => `ambient-nav-link link-database ${isActive ? "active-ambient-emerald" : ""}`}
+                >
+                  <Database size={16} /> <span>Data Explorer</span>
+                </NavLink>
+              </>
+            )}
 
-          <NavLink
-            to="/contact"
-            className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
-          >
-            <PhoneCall size={16} /> <span>Helplines</span>
-          </NavLink>
-        </nav>
+            <NavLink
+              to="/report"
+              className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
+            >
+              <AlertTriangle size={16} /> <span>Report Hazard</span>
+            </NavLink>
+
+            <NavLink
+              to="/contact"
+              className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
+            >
+              <PhoneCall size={16} /> <span>Helplines</span>
+            </NavLink>
+          </nav>
+        )}
 
         {/* CITY SWITCHER & AUTHENTICATION */}
         <div className="navbar-user-section" ref={dropdownRef} style={{ gap: 10 }}>
-          <button
-            type="button"
-            className="nav-city-selector-pill"
-            onClick={openCityModal}
-            title="Switch active State & City across India"
-          >
-            <MapPin size={14} className="text-cyan" />
-            <span>{activeCity}</span>
-            <ChevronDown size={13} />
-          </button>
+          {showAuthenticatedNav && (
+            <button
+              type="button"
+              className="nav-city-selector-pill"
+              onClick={openCityModal}
+              title="Switch active State & City across India"
+            >
+              <MapPin size={14} className="text-cyan" />
+              <span>{activeCity}</span>
+              <ChevronDown size={13} />
+            </button>
+          )}
 
-          {isAuthenticated && user ? (
+          {showAuthenticatedNav && user ? (
             <div className="user-dropdown-container">
               <button
                 type="button"
@@ -228,7 +233,7 @@ function Navbar() {
                 </div>
               )}
             </div>
-          ) : (
+          ) : !loading ? (
             <div className="auth-nav-buttons">
               <NavLink to="/login" className="login-action-btn">
                 <LogIn size={15} /> Sign In
@@ -237,7 +242,7 @@ function Navbar() {
                 <UserPlus size={15} /> Register
               </NavLink>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </header>

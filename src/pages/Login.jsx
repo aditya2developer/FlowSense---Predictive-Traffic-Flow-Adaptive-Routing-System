@@ -271,8 +271,10 @@ function Login() {
       );
 
       if (res.success) {
-        if (res.user?.city) {
-          selectCity({ state: res.user.state || activeState, city: res.user.city });
+        const preferredCity = res.user?.lastActiveCity || res.user?.city;
+        const preferredState = res.user?.lastActiveState || res.user?.state || activeState;
+        if (preferredCity) {
+          selectCity({ state: preferredState, city: preferredCity });
         }
         setSuccessMsg(`Welcome back, ${res.user?.name}!`);
         setTimeout(() => {

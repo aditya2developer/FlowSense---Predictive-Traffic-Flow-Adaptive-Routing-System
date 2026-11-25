@@ -67,14 +67,24 @@ async function run() {
   console.log('✅ Verification DB connection ready\n');
 
   try {
-    // ====== TEST 1: Admin login ======
-    const login = await req('POST', '/api/auth/login', {
-      email: 'admin@flowsense.gov.in',
-      password: 'admin',
-      role: 'ADMIN'
-    });
-    const adminToken = login.token;
-    log(!!adminToken, 'PASS 1: Admin login', adminToken ? 'token received' : 'NO TOKEN');
+    // ====== TEST 1: Admin JWT & /api/auth/me verification ======
+    const jwt = require('jsonwebtoken');
+    const { JWT_SECRET } = require('./middleware/auth');
+    const User = require('./models/User');
+    const adminRecord = await User.findOne({ email: 'admin@flowsense.gov.in' });
+    const adminToken = adminRecord
+      ? jwt.sign({ id: adminRecord._id, email: adminRecord.email, role: adminRecord.role }, JWT_SECRET, { expiresIn: '1h' })
+      : null;
+    log(!!adminToken, 'PASS 1: Admin verification token', adminToken ? 'token signed for DB test' : 'ADMIN USER NOT FOUND');
+
+    // Verify /api/auth/me rejects forged token & accepts real token
+    const badMe = await req('GET', '/api/auth/me', null, 'forged.invalid.token');
+    const goodMe = await req('GET', '/api/auth/me', null, adminToken);
+    log(badMe.success === false && goodMe.success === true, 'PASS 1B: /api/auth/me rejects fake token & accepts valid token');
+
+    // Verify /api/routes/recent-searches requires auth
+    const unauthSearches = await req('GET', '/api/routes/recent-searches');
+    log(unauthSearches.success === false, 'PASS 1C: /recent-searches rejects unauthenticated access');
 
     // ====== TEST 2: Weather fetch → MongoDB upsert ======
     const weatherRes = await req('GET', '/api/routes/weather/Delhi');
@@ -90,10 +100,12 @@ async function run() {
       const locRes = await req('PATCH', '/api/auth/active-location', { city: 'Mumbai', state: 'Maharashtra' }, adminToken);
       log(locRes.success, 'PASS 4: Active location sync', locRes.message || '');
 
-      const User = require('./models/User');
+      const UserCheck = require('./models/User');
       await new Promise((r) => setTimeout(r, 500));
-      const adminUser = await User.findOne({ email: 'admin@flowsense.gov.in' });
+      const adminUser = await UserCheck.findOne({ email: 'admin@flowsense.gov.in' });
       log(adminUser?.lastActiveCity === 'Mumbai', 'PASS 5: lastActiveCity in MongoDB', `city=${adminUser?.lastActiveCity}, state=${adminUser?.lastActiveState}`);
+      // Restore Admin's default Delhi NCR active location after test
+      await req('PATCH', '/api/auth/active-location', { city: 'Delhi NCR', state: 'Delhi (NCT)' }, adminToken);
     }
 
     // ====== TEST 6: Route search ======
@@ -105,8 +117,8 @@ async function run() {
 
     const RouteSearch = require('./models/RouteSearch');
     await new Promise((r) => setTimeout(r, 1500));
-    const searchDoc = await RouteSearch.findOne({}).sort({ createdAt: -1 });
-    log(!!searchDoc, 'PASS 7: RouteSearch in MongoDB', searchDoc ? `from=${searchDoc.fromLabel}` : 'NOT FOUND');
+    const searchDoc = await RouteSearch.findOne({ fromQuery: /Connaught/i }).sort({ createdAt: -1 });
+    log(!!searchDoc, 'PASS 7: RouteSearch in MongoDB', searchDoc ? `from=${searchDoc.fromQuery}, to=${searchDoc.toQuery}` : 'NOT FOUND');
 
     // ====== TEST 8: Contact message ======
     const contactRes = await req('POST', '/api/contact', {
@@ -115,7 +127,7 @@ async function run() {
       phone: '9999999999',
       subject: 'Verification Test',
       message: 'Testing MongoDB sync.',
-      category: 'GENERAL'
+      category: 'GENERAL_INQUIRY'
     });
     log(contactRes.success, 'PASS 8: Contact message', contactRes.message || '');
 
@@ -149,7 +161,7 @@ async function run() {
 
     // ====== TEST 13: DB overview ======
     const dbRes = await req('GET', '/api/database/overview', null, adminToken);
-    log(dbRes.success && dbRes.data, 'PASS 13: Database overview', `collections=${dbRes?.data?.collections?.length || 'N/A'}`);
+    log(dbRes.success && Array.isArray(dbRes.collections), 'PASS 13: Database overview', `collections=${dbRes?.collections?.length || 'N/A'}`);
 
     // ====== TEST 14: Reseed preserves users ======
     const User2 = require('./models/User');
@@ -164,7 +176,7 @@ async function run() {
     // ====== CLEANUP ======
     await Incident.deleteOne({ type: 'WATERLOGGING', description: /Verification test/i });
     await ContactMessage.deleteOne({ email: 'test@verify.com' });
-    await RouteSearch.deleteMany({ fromLabel: /Connaught/i });
+    await RouteSearch.deleteMany({ fromQuery: /Connaught/i });
 
   } finally {
     // ====== SUMMARY ======

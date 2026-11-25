@@ -30,6 +30,10 @@ async function apiFetch(endpoint, options = {}, timeoutMs = 8000) {
       message: response.ok ? "OK" : `HTTP Error ${response.status}`
     }));
 
+    if (data && typeof data === "object" && !Array.isArray(data) && !("httpStatus" in data)) {
+      Object.defineProperty(data, "httpStatus", { value: response.status, enumerable: false });
+    }
+
     return data;
   } catch (err) {
     clearTimeout(timeoutId);
@@ -118,7 +122,7 @@ export async function fetchLiveAutocomplete(query, lat, lon) {
     params.set("lat", lat);
     params.set("lon", lon);
   }
-  return apiFetch(`/api/routes/autocomplete?${params.toString()}`, {}, 4500);
+  return apiFetch(`/api/routes/autocomplete?${params.toString()}`, { headers: getAuthHeaders() }, 4500);
 }
 
 export async function searchRoutes(from, to) {
@@ -130,12 +134,12 @@ export async function searchRoutes(from, to) {
 }
 
 export async function fetchAnalytics(roadId) {
-  return apiFetch(`/api/routes/analytics/${encodeURIComponent(roadId)}`);
+  return apiFetch(`/api/routes/analytics/${encodeURIComponent(roadId)}`, { headers: getAuthHeaders() });
 }
 
 export async function fetchIncidents(city) {
   const query = city && city !== "All" && city !== "All Cities" ? `?city=${encodeURIComponent(city)}` : "";
-  return apiFetch(`/api/routes/incidents${query}`, {}, 5000);
+  return apiFetch(`/api/routes/incidents${query}`, { headers: getAuthHeaders() }, 5000);
 }
 
 export async function reportIncident(data) {
@@ -161,24 +165,24 @@ export async function upvoteIncident(id) {
 }
 
 export async function reverseGeocodeCoords(lat, lon) {
-  return apiFetch(`/api/routes/reverse-geocode?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`, {}, 6000);
+  return apiFetch(`/api/routes/reverse-geocode?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`, { headers: getAuthHeaders() }, 6000);
 }
 
 export async function fetchNearbyServices(lat, lon, radius = 5000) {
-  return apiFetch(`/api/routes/nearby-services?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&radius=${radius}`, {}, 8000);
+  return apiFetch(`/api/routes/nearby-services?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&radius=${radius}`, { headers: getAuthHeaders() }, 8000);
 }
 
 export async function fetchLiveFeed(city) {
   const q = city ? `?city=${encodeURIComponent(city)}` : "";
-  return apiFetch(`/api/routes/live-feed${q}`, {}, 8000);
+  return apiFetch(`/api/routes/live-feed${q}`, { headers: getAuthHeaders() }, 8000);
 }
 
 export async function fetchWeather(city = "Delhi") {
-  return apiFetch(`/api/routes/weather/${encodeURIComponent(city)}`, {}, 6000);
+  return apiFetch(`/api/routes/weather/${encodeURIComponent(city)}`, { headers: getAuthHeaders() }, 6000);
 }
 
 export async function fetchRoadSegments() {
-  return apiFetch("/api/routes/segments", {}, 5000);
+  return apiFetch("/api/routes/segments", { headers: getAuthHeaders() }, 5000);
 }
 
 // ==========================================
@@ -193,7 +197,7 @@ export async function fetchEnforcementStats(city) {
 }
 
 export async function fetchAdvisories() {
-  return apiFetch("/api/authority/advisories", {}, 4000);
+  return apiFetch("/api/authority/advisories", { headers: getAuthHeaders() }, 4000);
 }
 
 export async function createAdvisory(data) {
@@ -345,13 +349,13 @@ export async function checkBackendHealth() {
 // ==========================================
 
 export async function fetchHelplines() {
-  return apiFetch("/api/contact/helplines", {}, 4000);
+  return apiFetch("/api/contact/helplines", { headers: getAuthHeaders() }, 4000);
 }
 
 export async function submitContactMessage(data) {
   return apiFetch("/api/contact", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify(data)
   });
 }
@@ -363,7 +367,7 @@ export async function submitContactMessage(data) {
 export async function sendChatMessage(message) {
   return apiFetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ message })
   }, 7000);
 }
