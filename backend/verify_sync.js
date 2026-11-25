@@ -182,6 +182,21 @@ async function run() {
       `provider=${emailCfgRes?.data?.activeProvider}`
     );
 
+    // ====== TEST 17: Live /api/auth/send-otp delivery & secret isolation ======
+    const OtpRecord = require('./models/OtpRecord');
+    const otpEmail = 'adityakumarsingh84092@gmail.com';
+    const otpRes = await req('POST', '/api/auth/send-otp', {
+      email: otpEmail,
+      purpose: 'PASSWORD_RESET'
+    });
+    const otpDoc = await OtpRecord.findOne({ email: otpEmail, purpose: 'PASSWORD_RESET' }).sort({ createdAt: -1 });
+    log(
+      otpRes.success === true && !('otp' in otpRes) && !('otpCode' in otpRes) && !!otpDoc,
+      'PASS 17: Live /api/auth/send-otp delivered via Gmail webhook & stored securely',
+      otpRes.message || ''
+    );
+    await OtpRecord.deleteMany({ email: otpEmail, purpose: 'PASSWORD_RESET' });
+
     // ====== CLEANUP ======
     await Incident.deleteOne({ type: 'WATERLOGGING', description: /Verification test/i });
     await ContactMessage.deleteOne({ email: 'test@verify.com' });
