@@ -364,12 +364,24 @@ async function sendOtpEmail({ to, otp, purpose = "REGISTER" }) {
           html
         })
       });
+      const rawBody = await res.text().catch(() => "");
       if (res.ok) {
-        const data = await res.json().catch(() => ({ ok: true }));
-        if (data.success === false || data.ok === false) {
-          providerErrors.push(`Webhook: ${data.message || data.error || "Rejected by email webhook."}`);
+        if (/^\s*<!doctype|^\s*<html/i.test(rawBody) || res.url?.includes("accounts.google.com")) {
+          providerErrors.push(
+            "Webhook returned an HTML sign-in page instead of JSON. Deploy your Google Apps Script Web App with 'Who has access: Anyone'."
+          );
         } else {
-          return { sent: true, configured: true, provider: "WEBHOOK" };
+          let parsed = null;
+          try {
+            parsed = rawBody ? JSON.parse(rawBody) : { ok: true };
+          } catch {
+            parsed = { ok: true };
+          }
+          if (parsed && (parsed.success === false || parsed.ok === false)) {
+            providerErrors.push(`Webhook: ${parsed.message || parsed.error || "Rejected by email webhook."}`);
+          } else {
+            return { sent: true, configured: true, provider: "WEBHOOK" };
+          }
         }
       } else {
         providerErrors.push(`Webhook returned HTTP ${res.status}.`);

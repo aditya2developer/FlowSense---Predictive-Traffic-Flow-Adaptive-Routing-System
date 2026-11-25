@@ -416,6 +416,30 @@ function AdminPortal() {
     }
   }
 
+  async function handleClearEmailConfig() {
+    if (!window.confirm("Clear saved Email OTP Gateway credentials from MongoDB?")) return;
+    setEmailSaving(true);
+    setEmailFeedback(null);
+    try {
+      const res = await saveEmailGatewayConfig({
+        clearBrevoKey: true,
+        clearResendKey: true,
+        clearWebhookUrl: true,
+        clearSmtp: true,
+        emailFrom: "",
+        smtpHost: ""
+      });
+      if (res.success) {
+        setEmailStatus(res.data || null);
+        setEmailFeedback({ ok: true, text: "Cleared saved DB Email Gateway settings." });
+      }
+    } catch (err) {
+      setEmailFeedback({ ok: false, text: err.message });
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
   // Unauthenticated / Auth Gate View
   if (!isAdmin) {
     return (
@@ -1415,14 +1439,24 @@ function AdminPortal() {
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  className="auth-submit-btn"
-                  disabled={emailSaving}
-                  style={{ background: "linear-gradient(135deg, #06b6d4, #2563eb)", marginTop: 8 }}
-                >
-                  {emailSaving ? "Saving Gateway Settings..." : "Save Email OTP Gateway"}
-                </button>
+                <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="submit"
+                    className="auth-submit-btn"
+                    disabled={emailSaving}
+                    style={{ background: "linear-gradient(135deg, #06b6d4, #2563eb)", flex: 1 }}
+                  >
+                    {emailSaving ? "Saving Gateway Settings..." : "Save Email OTP Gateway"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={emailSaving}
+                    onClick={handleClearEmailConfig}
+                  >
+                    Clear Saved Settings
+                  </button>
+                </div>
               </form>
             </section>
 
