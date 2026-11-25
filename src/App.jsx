@@ -1,10 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import IncidentReport from "./pages/IncidentReport";
 import Login from "./pages/Login";
+import Profile from "./pages/Profile";
 import AuthorityPortal from "./pages/AuthorityPortal";
 import AdminPortal from "./pages/AdminPortal";
 import ContactHelpline from "./pages/ContactHelpline";
@@ -12,6 +13,17 @@ import DatabasePlatform from "./pages/DatabasePlatform";
 import EmergencyAlertModal from "./components/EmergencyAlertModal";
 import FlowSenseChatbot from "./components/FlowSenseChatbot";
 import "./App.css";
+
+function ProtectedUserRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) {
+    return <div className="page-loading-state">Loading Profile Session...</div>;
+  }
+  if (!isAuthenticated) {
+    return <Navigate to="/login?redirect=/profile" replace />;
+  }
+  return children;
+}
 
 function ProtectedAuthorityRoute({ children }) {
   const { isAuthority, isAuthenticated, loading } = useAuth();
@@ -42,10 +54,10 @@ function App() {
         <div className="flowsense-app">
           <Navbar />
 
-          {/* GLOBAL EMERGENCY ALERT MODAL — Police Only Hazard Dispatch (No floating button) */}
+          {/* GLOBAL EMERGENCY ALERT MODAL — Police Only Hazard Dispatch */}
           <EmergencyAlertModal />
 
-          {/* SMART CITY AI COPILOT CHATBOT — Floating in bottom-right corner for all citizen & official queries */}
+          {/* SMART CITY AI COPILOT CHATBOT */}
           <FlowSenseChatbot />
 
           <main className="flowsense-main">
@@ -57,7 +69,16 @@ function App() {
               <Route path="/report" element={<IncidentReport />} />
               <Route path="/contact" element={<ContactHelpline />} />
 
-              {/* STRICTLY ROLE-PROTECTED PORTALS — Visible only after successful login */}
+              <Route
+                path="/profile"
+                element={
+                  <ProtectedUserRoute>
+                    <Profile />
+                  </ProtectedUserRoute>
+                }
+              />
+
+              {/* STRICTLY ROLE-PROTECTED PORTALS */}
               <Route
                 path="/authority"
                 element={
@@ -89,12 +110,12 @@ function App() {
                 </div>
               </div>
               <div className="footer-links-ambient">
-                <a href="/database">MongoDB Platform</a>
-                <a href="/login?role=ADMIN">Admin Console</a>
-                <a href="/login?role=AUTHORITY">Police Command</a>
-                <a href="/login?role=PUBLIC">Commuter Portal</a>
-                <a href="/report">Report Hazard</a>
-                <a href="/contact">Helpline &amp; Contact (112 / 1033)</a>
+                <Link to="/database">MongoDB Platform</Link>
+                <Link to="/profile">User Profile</Link>
+                <Link to="/login?role=ADMIN">Admin Console</Link>
+                <Link to="/login?role=AUTHORITY">Police Command</Link>
+                <Link to="/report">Report Hazard</Link>
+                <Link to="/contact">Helpline &amp; Contact (112 / 1033)</Link>
               </div>
               <div className="footer-meta-ambient">
                 <p>© {new Date().getFullYear()} FlowSense Platform. Built for Smart Cities Mission.</p>

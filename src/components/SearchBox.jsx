@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { reverseGeocodeCoords } from "../api";
 import {
   MapPin,
   Compass,
@@ -171,7 +172,7 @@ export default function SearchBox({ from, to, setFrom, setTo, onSearch, loading 
     setShowToDropdown(false);
   }
 
-  // HTML5 Live Device Geolocation
+  // HTML5 Live Device Geolocation + Real-Time Reverse Geocoding
   function handleLocateMe() {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser.");
@@ -179,17 +180,26 @@ export default function SearchBox({ from, to, setFrom, setTo, onSearch, loading 
     }
     setIsLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const { latitude, longitude } = pos.coords;
-        setFrom(`Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
-        setIsLocating(false);
+        try {
+          const geo = await reverseGeocodeCoords(latitude, longitude);
+          if (geo.success && geo.data?.displayName) {
+            setFrom(`${geo.data.displayName} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+          } else {
+            setFrom(`Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+          }
+        } catch {
+          setFrom(`Current Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+        } finally {
+          setIsLocating(false);
+        }
       },
       () => {
-        // Fallback default if user denies permission
         setFrom("Connaught Place (Rajiv Chowk), New Delhi");
         setIsLocating(false);
       },
-      { timeout: 7000 }
+      { enableHighAccuracy: true, timeout: 7000 }
     );
   }
 

@@ -526,6 +526,20 @@ async function geocodeLocation(location) {
 
   const query = location.trim();
 
+  // 0. Check if query already contains GPS coordinates (e.g. "Current Location (28.6139, 77.2090)" or "28.6139, 77.2090")
+  const coordMatch = query.match(/(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
+  if (coordMatch) {
+    const lat = parseFloat(coordMatch[1]);
+    const lon = parseFloat(coordMatch[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      return {
+        latitude: lat,
+        longitude: lon,
+        displayName: query
+      };
+    }
+  }
+
   // 1. Check instantaneous local dictionary (<1ms)
   const localMatch = findInLocalDictionary(query);
   if (localMatch) {

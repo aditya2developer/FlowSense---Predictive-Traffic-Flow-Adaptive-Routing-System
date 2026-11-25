@@ -9,6 +9,7 @@ const matchRoadSegments = require("../utils/matchRoadSegments");
 const Incident = require('../models/Incident');
 const Weather = require('../models/Weather');
 const { fetchRealTimeWeather } = require("../utils/liveWeather");
+const { reverseGeocode, fetchNearbyEmergencyServices } = require("../utils/realTimeServices");
 const generateRecommendations = require("../utils/recommendationEngine");
 
 const router = express.Router();
@@ -154,30 +155,37 @@ router.post("/search", async (req, res) => {
       let activeIncidents = [];
       let latestWeather = null;
 
-      try {
-        latestWeather = await Weather.findOne({}).sort({ timestamp: -1 }).lean();
-      } catch (err) {
-        console.warn("Weather lookup skipped:", err.message);
+      if (global.isMongoConnected) {
+        try {
+          latestWeather = await Weather.findOne({}).sort({ timestamp: -1 }).lean();
+        } catch (err) {
+          console.warn("Weather lookup skipped:", err.message);
+        }
       }
 
       if (roadId) {
-        try {
-          prediction = await predictTraffic(
-            roadId,
-            dayOfWeek,
-            currentHour
-          );
-        } catch (predictionError) {
-          console.error(
-            `Traffic prediction failed for ${roadId}:`,
-            predictionError
-          );
-        }
+        if (global.isMongoConnected) {
+          try {
+            prediction = await predictTraffic(
+              roadId,
+              dayOfWeek,
+              currentHour
+            );
+          } catch (predictionError) {
+            console.error(
+              `Traffic prediction failed for ${roadId}:`,
+              predictionError
+            );
+          }
 
-        try {
-          activeIncidents = await Incident.find({ roadId, status: "ACTIVE" }).lean();
-        } catch (incError) {
-          console.warn("Incident lookup skipped:", incError.message);
+          try {
+            activeIncidents = await Incident.find({ roadId, status: "ACTIVE" }).lean();
+          } catch (incError) {
+            console.warn("Incident lookup skipped:", incError.message);
+          }
+        } else {
+          const MemoryStore = require("../utils/memoryStore");
+          activeIncidents = MemoryStore.getIncidents().filter((inc) => inc.roadId === roadId);
         }
       }
 
@@ -1143,8 +1151,10 @@ router.post('/incidents', async (req, res) => {
       description = '',
       landmark = '',
       reportedBy = 'Citizen Commuter',
+      reporterEmail = '',
       contactPhone = '',
       location = '',
+      images = [],
       coordinates
     } = req.body || {};
 
@@ -1172,8 +1182,11 @@ router.post('/incidents', async (req, res) => {
           landmark: landmark.trim(),
           recommendation: driverRecommendation,
           reportedBy: reportedBy.trim() || 'Citizen Commuter',
+          reporterEmail: String(reporterEmail || '').trim().toLowerCase(),
           contactPhone: contactPhone.trim(),
           location: location.trim() || cleanRoadName,
+          images: Array.isArray(images) ? images.slice(0, 3) : [],
+          upvotes: 1,
           coordinates: coordinates || null,
           status: 'ACTIVE'
         });
@@ -1195,8 +1208,11 @@ router.post('/incidents', async (req, res) => {
         landmark: landmark.trim(),
         recommendation: driverRecommendation,
         reportedBy: reportedBy.trim() || 'Citizen Commuter',
+        reporterEmail: String(reporterEmail || '').trim().toLowerCase(),
         contactPhone: contactPhone.trim(),
-        location: location.trim() || cleanRoadName
+        location: location.trim() || cleanRoadName,
+        images: Array.isArray(images) ? images.slice(0, 3) : [],
+        coordinates: coordinates || null
       });
     }
 
@@ -1326,6 +1342,96 @@ router.post('/weather', async (req, res) => {
     const saved = await weather.save();
     return res.status(201).json({ success: true, data: saved });
   } catch (error) { return res.status(500).json({ success: false, message: 'Failed to save weather.' }); }
+});
+
+// INCIDENTS - POST upvote / community verification
+router.post('/incidents/:id/upvote', async (req, res) => {
+  try {
+    if (global.isMongoConnected) {
+      const updated = await Incident.findByIdAndUpdate(
+        req.params.id,
+        { $inc: { upvotes: 1 } },
+        { new: true }
+      );
+      if (updated) {
+        return res.json({ success: true, data: updated, message: 'Hazard confirmed by commuter.' });
+      }
+    }
+    const MemoryStore = require("../utils/memoryStore");
+    const memUpdated = MemoryStore.upvoteIncident(req.params.id);
+    if (memUpdated) {
+      return res.json({ success: true, data: memUpdated, message: 'Hazard confirmed by commuter.' });
+    }
+    return res.status(404).json({ success: false, message: 'Incident not found.' });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// REAL-TIME REVERSE GEOCODING (Free BigDataCloud / Nominatim)
+router.get('/reverse-geocode', async (req, res) => {
+  try {
+    const { lat, lon } = req.query;
+    if (!lat || !lon) {
+      return res.status(400).json({ success: false, message: 'lat and lon query params required.' });
+    }
+    const result = await reverseGeocode(lat, lon);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Reverse geocode failed.' });
+  }
+});
+
+// REAL-TIME NEARBY EMERGENCY SERVICES (Hospitals, Police, Fuel via Overpass API)
+router.get('/nearby-services', async (req, res) => {
+  try {
+    const lat = Number(req.query.lat) || 28.6139;
+    const lon = Number(req.query.lon) || 77.2090;
+    const radius = Math.min(15000, Math.max(1000, Number(req.query.radius) || 5000));
+    const result = await fetchNearbyEmergencyServices(lat, lon, radius);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to load nearby services.' });
+  }
+});
+
+// REAL-TIME LIVE MOBILITY & WEATHER GRID FEED
+router.get('/live-feed', async (req, res) => {
+  try {
+    const [delhiWeather, mumbaiWeather, blrWeather, jalandharWeather] = await Promise.all([
+      fetchRealTimeWeather('Delhi'),
+      fetchRealTimeWeather('Mumbai'),
+      fetchRealTimeWeather('Bengaluru'),
+      fetchRealTimeWeather('Jalandhar')
+    ]);
+
+    let activeIncidents = 0;
+    let totalSegments = 10;
+    let totalTrafficRecords = 9240;
+
+    if (global.isMongoConnected) {
+      try {
+        [activeIncidents, totalSegments, totalTrafficRecords] = await Promise.all([
+          Incident.countDocuments({ status: 'ACTIVE' }),
+          RoadSegment.countDocuments(),
+          TrafficRecord.countDocuments()
+        ]);
+      } catch (e) {}
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        activeIncidents,
+        totalSegments,
+        totalTrafficRecords,
+        liveWeatherGrid: [delhiWeather, mumbaiWeather, blrWeather, jalandharWeather],
+        serverTimestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Live feed unavailable.' });
+  }
 });
 
 module.exports = router;

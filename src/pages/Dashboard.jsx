@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import TrafficAnalytics from "../components/TrafficAnalytics";
 import { fetchIncidents, resolveIncident, fetchWeather, fetchRoadSegments } from "../api";
-import { RefreshCw, CloudSun, AlertCircle, Shield, Activity, Route } from "lucide-react";
+import { RefreshCw, CloudSun, AlertCircle, Shield, Activity, Route, ThumbsUp, Camera } from "lucide-react";
 
 const WEATHER_CITIES = [
   "Delhi", "Mumbai", "Bengaluru", "Chennai", "Hyderabad", "Kolkata",
@@ -150,16 +150,24 @@ function Dashboard() {
               </div>
               <div className="weather-detail-item">
                 <span>Precipitation</span>
-                <strong>{weather.precipitation != null ? `${weather.precipitation} mm` : "None"}</strong>
+                <strong>{weather.rainfall ?? weather.precipitation ?? 0} mm</strong>
               </div>
+              {weather.aqi && (
+                <div className="weather-detail-item">
+                  <span>Live AQI (PM2.5)</span>
+                  <strong style={{ color: weather.aqi.color }}>
+                    {weather.aqi.usAqi} • {weather.aqi.label} ({weather.aqi.pm25} µg/m³)
+                  </strong>
+                </div>
+              )}
               <div className="weather-detail-item">
                 <span>Road Safety</span>
                 <strong className={
-                  (weather.precipitation > 10 || weather.condition?.toLowerCase().includes("rain") || weather.condition?.toLowerCase().includes("fog"))
+                  ((weather.rainfall || weather.precipitation || 0) > 10 || weather.condition?.toLowerCase().includes("rain") || weather.condition?.toLowerCase().includes("fog"))
                     ? "text-rose"
                     : "text-emerald"
                 }>
-                  {(weather.precipitation > 10 || weather.condition?.toLowerCase().includes("rain") || weather.condition?.toLowerCase().includes("fog"))
+                  {((weather.rainfall || weather.precipitation || 0) > 10 || weather.condition?.toLowerCase().includes("rain") || weather.condition?.toLowerCase().includes("fog"))
                     ? "Caution — Reduce Speed"
                     : "Normal Conditions"}
                 </strong>
@@ -212,7 +220,15 @@ function Dashboard() {
                     <td><strong>{inc.type?.replace(/_/g, " ")}</strong></td>
                     <td>{inc.roadName || inc.roadId}</td>
                     <td>{inc.city || "—"}</td>
-                    <td style={{ maxWidth: 220, fontSize: "0.82rem" }}>{inc.description || "No description provided"}</td>
+                    <td style={{ maxWidth: 220, fontSize: "0.82rem" }}>
+                      <div>{inc.description || "No description provided"}</div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 4, fontSize: "0.74rem", color: "#94a3b8" }}>
+                        <span><ThumbsUp size={11} /> {inc.upvotes || 1}</span>
+                        {Array.isArray(inc.images) && inc.images.length > 0 && (
+                          <span style={{ color: "#38bdf8" }}><Camera size={11} /> {inc.images.length} photo(s)</span>
+                        )}
+                      </div>
+                    </td>
                     <td>{new Date(inc.reportedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
                     <td>
                       <button className="resolve-btn" onClick={() => handleResolve(inc._id)} title="Mark hazard as cleared">

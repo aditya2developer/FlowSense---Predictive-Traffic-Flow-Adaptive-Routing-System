@@ -12,14 +12,27 @@ import {
   ChevronDown,
   LogIn,
   UserPlus,
-  PhoneCall
+  PhoneCall,
+  ShieldCheck,
+  Clock
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 function Navbar() {
   const { user, role, isAdmin, isAuthority, logout, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   function handleLogout() {
     setDropdownOpen(false);
@@ -32,6 +45,8 @@ function Navbar() {
     AUTHORITY: "badge-authority",
     PUBLIC: "badge-public"
   }[role] || "badge-public";
+
+  const verificationStatus = user?.verificationStatus || "VERIFIED";
 
   return (
     <header className="navbar-header-ambient">
@@ -73,7 +88,6 @@ function Navbar() {
             <Database size={16} /> <span>MongoDB Platform</span>
           </NavLink>
 
-          {/* AUTHORITY DISPATCH LINK — Visible only for authenticated Traffic Police & Admin */}
           {isAuthority && (
             <NavLink
               to="/authority"
@@ -83,7 +97,6 @@ function Navbar() {
             </NavLink>
           )}
 
-          {/* MAIN ADMIN LINK — Visible only for authenticated Global Admin */}
           {isAdmin && (
             <NavLink
               to="/admin"
@@ -109,7 +122,7 @@ function Navbar() {
         </nav>
 
         {/* AUTHENTICATION / PROFILE SECTION */}
-        <div className="navbar-user-section">
+        <div className="navbar-user-section" ref={dropdownRef}>
           {isAuthenticated && user ? (
             <div className="user-dropdown-container">
               <button
@@ -117,11 +130,25 @@ function Navbar() {
                 className={`active-role-pill ${roleBadgeStyle}`}
                 onClick={() => setDropdownOpen(!dropdownOpen)}
               >
-                {role === "ADMIN" && <Shield size={14} />}
-                {role === "AUTHORITY" && <Radio size={14} />}
-                {role === "PUBLIC" && <User size={14} />}
+                {user.avatar ? (
+                  <img src={user.avatar} alt={user.name} className="nav-user-avatar" />
+                ) : (
+                  <>
+                    {role === "ADMIN" && <Shield size={14} />}
+                    {role === "AUTHORITY" && <Radio size={14} />}
+                    {role === "PUBLIC" && <User size={14} />}
+                  </>
+                )}
                 <span className="role-pill-text">
-                  {user.name?.split(" ")[0]} ({role === "ADMIN" ? "Admin" : role === "AUTHORITY" ? "Traffic Police" : "Commuter"})
+                  {user.name?.split(" ")[0]} (
+                  {role === "ADMIN"
+                    ? "Admin"
+                    : role === "AUTHORITY"
+                      ? verificationStatus === "PENDING"
+                        ? "Police Pending"
+                        : "Traffic Police"
+                      : "Commuter"}
+                  )
                 </span>
                 <ChevronDown size={14} className="dropdown-caret" />
               </button>
@@ -129,7 +156,18 @@ function Navbar() {
               {dropdownOpen && (
                 <div className="ambient-dropdown-menu">
                   <div className="dropdown-user-info">
-                    <strong>{user.name}</strong>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                      <strong>{user.name}</strong>
+                      {verificationStatus === "VERIFIED" ? (
+                        <span className="nav-ver-badge ok" title="Verified Account">
+                          <ShieldCheck size={12} /> Verified
+                        </span>
+                      ) : (
+                        <span className="nav-ver-badge pending" title="Awaiting Admin Review">
+                          <Clock size={12} /> {verificationStatus}
+                        </span>
+                      )}
+                    </div>
                     <span>{user.email}</span>
                     <span className="dropdown-dept">
                       {user.department || (role === "ADMIN" ? "HQ Administrator" : role === "AUTHORITY" ? "Traffic Police" : "Citizen")}
@@ -141,7 +179,15 @@ function Navbar() {
 
                   <div className="dropdown-divider" />
 
-                                    <Link
+                  <Link
+                    to="/profile"
+                    className="dropdown-item"
+                    onClick={() => setDropdownOpen(false)}
+                  >
+                    <User size={15} /> My Profile &amp; Security
+                  </Link>
+
+                  <Link
                     to="/database"
                     className="dropdown-item"
                     onClick={() => setDropdownOpen(false)}
@@ -149,7 +195,6 @@ function Navbar() {
                     <Database size={15} /> MongoDB Platform Explorer
                   </Link>
 
-                  {/* QUICK PORTAL LINKS BASED ON ROLE */}
                   {isAdmin && (
                     <Link
                       to="/admin"

@@ -32,13 +32,74 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    rank: {
+      type: String,
+      default: ""
+    },
+    stationName: {
+      type: String,
+      default: ""
+    },
+    city: {
+      type: String,
+      default: ""
+    },
+    state: {
+      type: String,
+      default: ""
+    },
     phone: {
+      type: String,
+      default: ""
+    },
+    emergencyContact: {
+      type: String,
+      default: ""
+    },
+    vehicleInfo: {
+      type: String,
+      default: ""
+    },
+    bio: {
       type: String,
       default: ""
     },
     avatar: {
       type: String,
+      default: "" // Base64 compressed image or URL
+    },
+    idProofImage: {
+      type: String,
+      default: "" // Uploaded Police / Authority ID card photo
+    },
+    isEmailVerified: {
+      type: Boolean,
+      default: false
+    },
+    verificationStatus: {
+      type: String,
+      enum: ["VERIFIED", "PENDING", "REJECTED"],
+      default: "VERIFIED"
+    },
+    verifiedBy: {
+      type: String,
       default: ""
+    },
+    verifiedAt: {
+      type: Date,
+      default: null
+    },
+    verificationNotes: {
+      type: String,
+      default: ""
+    },
+    lastLoginAt: {
+      type: Date,
+      default: null
+    },
+    passwordChangedAt: {
+      type: Date,
+      default: null
     },
     isActive: {
       type: Boolean,
@@ -52,7 +113,7 @@ const userSchema = new mongoose.Schema(
 
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
-  const salt = await bcrypt.genSalt(10);
+  const salt = await bcrypt.genSalt(12);
   this.password = await bcrypt.hash(this.password, salt);
 });
 

@@ -26,6 +26,11 @@ async function predictTraffic(roadId, dayOfWeek, hour) {
     );
   }
 
+  // Prevent Mongoose 10s command buffering stall when database is offline/connecting
+  if (!global.isMongoConnected) {
+    return null;
+  }
+
   // Strategy 1: Exact weekday and hour.
   let records = await TrafficRecord.find({
     roadId,

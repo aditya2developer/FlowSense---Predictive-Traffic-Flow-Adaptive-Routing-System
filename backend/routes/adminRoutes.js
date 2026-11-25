@@ -203,6 +203,57 @@ router.patch("/users/:id/role", authenticate, requireRole("ADMIN"), async (req, 
   }
 });
 
+// Verify or reject a Police / Authority officer registration
+router.patch("/users/:id/verify", authenticate, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const { status = "VERIFIED", notes = "" } = req.body || {};
+    if (!["VERIFIED", "PENDING", "REJECTED"].includes(status)) {
+      return res.status(400).json({ success: false, message: "Invalid verification status." });
+    }
+
+    if (global.isMongoConnected) {
+      const updatePayload = {
+        verificationStatus: status,
+        verifiedBy: req.user.name,
+        verifiedAt: new Date(),
+        verificationNotes: notes
+      };
+      if (status === "VERIFIED") {
+        updatePayload.isEmailVerified = true;
+      }
+
+      const updated = await User.findByIdAndUpdate(
+        req.params.id,
+        updatePayload,
+        { new: true }
+      ).select("-password");
+
+      if (!updated) {
+        return res.status(404).json({ success: false, message: "User not found." });
+      }
+
+      return res.json({
+        success: true,
+        data: updated,
+        message: `Officer ${updated.name} marked as ${status} by Admin ${req.user.name}.`
+      });
+    }
+
+    const memVerified = MemoryStore.verifyUser(req.params.id, status, req.user.name, notes);
+    if (memVerified) {
+      return res.json({
+        success: true,
+        data: memVerified,
+        message: `Officer ${memVerified.name} marked as ${status} by Admin ${req.user.name}.`
+      });
+    }
+
+    return res.status(404).json({ success: false, message: "User not found." });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.delete("/users/:id", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {

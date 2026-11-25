@@ -4,6 +4,7 @@ import {
   fetchAdminStats,
   fetchAdminUsers,
   updateUserRole,
+  verifyAdminUser,
   deleteAdminUser,
   createAdminUser,
   fetchAdminSegments,
@@ -27,30 +28,31 @@ import {
   CheckCircle2,
   Trash2,
   Lock,
-  Layers,
-  Sparkles,
-  Server,
   PlusCircle,
   AlertTriangle,
-  Radio,
   Siren,
   RefreshCw,
   UserPlus,
-  Compass,
   FileCheck2,
-  X
+  X,
+  BadgeCheck,
+  Clock,
+  XCircle,
+  ThumbsUp
 } from "lucide-react";
 
-function AdminPortal({ authGate = false }) {
+function AdminPortal() {
   const { user, isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [usersList, setUsersList] = useState([]);
   const [segmentsList, setSegmentsList] = useState([]);
   const [incidentsList, setIncidentsList] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview"); // overview, segments, incidents, users, ml
+  const [, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("overview"); // overview, verification, segments, incidents, users, ml
   const [actionMsg, setActionMsg] = useState("");
   const [isReseeding, setIsReseeding] = useState(false);
+  const [verificationNotes, setVerificationNotes] = useState({});
+  const [lightboxImage, setLightboxImage] = useState("");
 
   // Modals state
   const [showAddSegmentModal, setShowAddSegmentModal] = useState(false);
@@ -118,6 +120,21 @@ function AdminPortal({ authGate = false }) {
       }
     } catch (err) {
       console.error(err);
+    }
+  }
+
+  async function handleVerifyOfficer(userId, status, officerName) {
+    try {
+      const notes = verificationNotes[userId] || "";
+      const res = await verifyAdminUser(userId, status, notes);
+      if (res.success) {
+        notify(res.message || `Officer ${officerName} marked as ${status}.`);
+        loadAdminData();
+      } else {
+        alert(res.message || "Verification update failed.");
+      }
+    } catch (err) {
+      alert("Verification error: " + err.message);
     }
   }
 
@@ -331,6 +348,12 @@ function AdminPortal({ authGate = false }) {
   const counts = data?.counts || {};
   const sys = data?.systemInfo || {};
   const db = data?.database || {};
+  const pendingOfficers = usersList.filter(
+    (u) => u.role === "AUTHORITY" && u.verificationStatus === "PENDING"
+  );
+  const reviewedOfficers = usersList.filter(
+    (u) => u.role === "AUTHORITY" && u.verificationStatus !== "PENDING"
+  );
 
   return (
     <div className="admin-portal-wrapper">
@@ -449,6 +472,17 @@ function AdminPortal({ authGate = false }) {
 
         <button
           type="button"
+          className={`admin-tab-btn ${activeTab === "verification" ? "active" : ""}`}
+          onClick={() => setActiveTab("verification")}
+        >
+          <BadgeCheck size={16} /> Police Verification
+          {pendingOfficers.length > 0 && (
+            <span className="pending-count-badge">{pendingOfficers.length} Pending</span>
+          )}
+        </button>
+
+        <button
+          type="button"
           className={`admin-tab-btn ${activeTab === "segments" ? "active" : ""}`}
           onClick={() => setActiveTab("segments")}
         >
@@ -535,6 +569,179 @@ function AdminPortal({ authGate = false }) {
               </div>
             </section>
           </div>
+        </div>
+      )}
+
+      {/* TAB CONTENT: POLICE OFFICER ID VERIFICATION */}
+      {activeTab === "verification" && (
+        <div className="admin-tab-content">
+          <section className="portal-card">
+            <div className="portal-card-header">
+              <div>
+                <h2>Traffic Police ID &amp; Badge Verification Queue ({pendingOfficers.length} Pending)</h2>
+                <p>
+                  Inspect uploaded Official Police ID / Warrant Cards, Rank, Badge ID, and Station
+                  assignments before unlocking Police Command privileges.
+                </p>
+              </div>
+              <span className="live-pulse-badge">MongoDB Official Registry</span>
+            </div>
+
+            {pendingOfficers.length === 0 ? (
+              <div className="empty-hazards-state">
+                <CheckCircle2 size={34} className="text-emerald" />
+                <p>No pending Police officer registrations awaiting review right now.</p>
+              </div>
+            ) : (
+              <div className="officer-verify-grid">
+                {pendingOfficers.map((off) => (
+                  <div key={off._id} className="officer-verify-card">
+                    <div className="officer-card-top">
+                      <div>
+                        <span className="verified-chip chip-status-pending">
+                          <Clock size={12} /> PENDING VERIFICATION
+                        </span>
+                        <h3>{off.name}</h3>
+                        <p className="officer-email">{off.email} {off.phone ? `• ${off.phone}` : ""}</p>
+                      </div>
+                      <span className="role-badge role-authority">AUTHORITY</span>
+                    </div>
+
+                    <div className="officer-cred-details">
+                      <div><span>Badge ID</span><strong>{off.badgeNumber || "—"}</strong></div>
+                      <div><span>Rank</span><strong>{off.rank || "Officer"}</strong></div>
+                      <div><span>Station</span><strong>{off.stationName || off.department || "—"}</strong></div>
+                      <div><span>Jurisdiction</span><strong>{off.city || "India"}{off.state ? `, ${off.state}` : ""}</strong></div>
+                    </div>
+
+                    {off.idProofImage ? (
+                      <div className="officer-id-preview">
+                        <span>Uploaded Police ID Proof (Click to inspect):</span>
+                        <img
+                          src={off.idProofImage}
+                          alt={`${off.name} Police ID`}
+                          onClick={() => setLightboxImage(off.idProofImage)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="no-id-warning">No Police ID photo uploaded with application.</div>
+                    )}
+
+                    <input
+                      type="text"
+                      placeholder="Optional verification remarks / station confirmation notes..."
+                      className="verify-notes-input"
+                      value={verificationNotes[off._id] || ""}
+                      onChange={(e) =>
+                        setVerificationNotes((prev) => ({ ...prev, [off._id]: e.target.value }))
+                      }
+                    />
+
+                    <div className="officer-verify-actions">
+                      <button
+                        type="button"
+                        className="btn-verify-approve"
+                        onClick={() => handleVerifyOfficer(off._id, "VERIFIED", off.name)}
+                      >
+                        <CheckCircle2 size={15} /> Approve &amp; Verify Officer
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-verify-reject"
+                        onClick={() => handleVerifyOfficer(off._id, "REJECTED", off.name)}
+                      >
+                        <XCircle size={15} /> Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* REVIEWED POLICE ACCOUNTS HISTORY */}
+            {reviewedOfficers.length > 0 && (
+              <div style={{ marginTop: 28 }}>
+                <h3 style={{ fontSize: 15, marginBottom: 12, color: "#cbd5e1" }}>
+                  Reviewed &amp; Active Police Roster ({reviewedOfficers.length})
+                </h3>
+                <div className="admin-table-wrapper">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Officer</th>
+                        <th>Badge &amp; Rank</th>
+                        <th>Station / City</th>
+                        <th>ID Proof</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reviewedOfficers.map((off) => (
+                        <tr key={off._id}>
+                          <td>
+                            <strong>{off.name}</strong>
+                            <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{off.email}</div>
+                          </td>
+                          <td>
+                            <code>{off.badgeNumber || "—"}</code>
+                            <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{off.rank || "Traffic Police"}</div>
+                          </td>
+                          <td>
+                            {off.stationName || off.department || "—"}
+                            <div style={{ fontSize: "0.75rem", color: "#94a3b8" }}>{off.city || ""}</div>
+                          </td>
+                          <td>
+                            {off.idProofImage ? (
+                              <button
+                                type="button"
+                                className="btn-table-resolve"
+                                onClick={() => setLightboxImage(off.idProofImage)}
+                              >
+                                View ID
+                              </button>
+                            ) : (
+                              <span style={{ color: "#64748b", fontSize: 12 }}>Demo / Pre-verified</span>
+                            )}
+                          </td>
+                          <td>
+                            <span
+                              className={`verified-chip ${
+                                off.verificationStatus === "VERIFIED"
+                                  ? "chip-status-verified"
+                                  : "chip-status-rejected"
+                              }`}
+                            >
+                              {off.verificationStatus || "VERIFIED"}
+                            </span>
+                          </td>
+                          <td>
+                            {off.verificationStatus === "VERIFIED" ? (
+                              <button
+                                type="button"
+                                className="btn-table-delete"
+                                onClick={() => handleVerifyOfficer(off._id, "REJECTED", off.name)}
+                              >
+                                Revoke
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-table-resolve"
+                                onClick={() => handleVerifyOfficer(off._id, "VERIFIED", off.name)}
+                              >
+                                Approve
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       )}
 
@@ -647,7 +854,24 @@ function AdminPortal({ authGate = false }) {
                           {inc.severity}
                         </span>
                       </td>
-                      <td style={{ maxWidth: 260 }}>{inc.description}</td>
+                      <td style={{ maxWidth: 260 }}>
+                        <div>{inc.description}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.74rem", color: "#94a3b8", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <ThumbsUp size={11} /> {inc.upvotes || 1}
+                          </span>
+                          {Array.isArray(inc.images) &&
+                            inc.images.map((src, i) => (
+                              <img
+                                key={i}
+                                src={src}
+                                alt="Evidence"
+                                className="admin-inc-thumb"
+                                onClick={() => setLightboxImage(src)}
+                              />
+                            ))}
+                        </div>
+                      </td>
                       <td>{inc.reportedBy || "Citizen"}</td>
                       <td>
                         <span className={`status-pill status-${inc.status?.toLowerCase()}`}>
@@ -723,7 +947,8 @@ function AdminPortal({ authGate = false }) {
                     <th>User</th>
                     <th>Email</th>
                     <th>Assigned Role</th>
-                    <th>Department / Unit</th>
+                    <th>Verification</th>
+                    <th>Department / Station</th>
                     <th>Badge #</th>
                     <th>Role Selection</th>
                     <th>Remove</th>
@@ -734,8 +959,15 @@ function AdminPortal({ authGate = false }) {
                     <tr key={u._id}>
                       <td>
                         <div className="user-table-cell">
-                          <div className="user-avatar-sm">{u.name?.charAt(0) || "U"}</div>
-                          <strong>{u.name}</strong>
+                          {u.avatar ? (
+                            <img src={u.avatar} alt={u.name} className="user-avatar-sm-img" />
+                          ) : (
+                            <div className="user-avatar-sm">{u.name?.charAt(0) || "U"}</div>
+                          )}
+                          <div>
+                            <strong>{u.name}</strong>
+                            {u.rank && <div style={{ fontSize: "0.72rem", color: "#94a3b8" }}>{u.rank}</div>}
+                          </div>
                         </div>
                       </td>
                       <td><code>{u.email}</code></td>
@@ -744,7 +976,31 @@ function AdminPortal({ authGate = false }) {
                           {u.role}
                         </span>
                       </td>
-                      <td>{u.department || "Citizen Services"}</td>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span
+                            className={`verified-chip ${
+                              u.verificationStatus === "PENDING"
+                                ? "chip-status-pending"
+                                : u.verificationStatus === "REJECTED"
+                                  ? "chip-status-rejected"
+                                  : "chip-status-verified"
+                            }`}
+                          >
+                            {u.verificationStatus || "VERIFIED"}
+                          </span>
+                          {u.verificationStatus === "PENDING" && (
+                            <button
+                              type="button"
+                              className="btn-table-resolve"
+                              onClick={() => handleVerifyOfficer(u._id, "VERIFIED", u.name)}
+                            >
+                              Verify
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td>{u.stationName || u.department || "Citizen Services"}</td>
                       <td><code>{u.badgeNumber || "—"}</code></td>
                       <td>
                         <select
@@ -1036,6 +1292,22 @@ function AdminPortal({ authGate = false }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* LIGHTBOX MODAL FOR OFFICER ID PROOF OR HAZARD PHOTOS */}
+      {lightboxImage && (
+        <div className="emergency-modal-overlay" onClick={() => setLightboxImage("")}>
+          <div className="lightbox-card" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="lightbox-close-btn"
+              onClick={() => setLightboxImage("")}
+            >
+              <X size={18} />
+            </button>
+            <img src={lightboxImage} alt="Verification Evidence" />
           </div>
         </div>
       )}

@@ -147,14 +147,18 @@ function wmoCodeToCondition(code) {
   return { condition: "Clear", icon: "🌤️", warning: null };
 }
 
-// In-memory cache to prevent spamming external API (cached for 60 seconds per city)
+function getAqiCategory(usAqi) {
+  if (!Number.isFinite(usAqi)) return { label: "Good", color: "#10b981" };
+  if (usAqi <= 50) return { label: "Good", color: "#10b981" };
+  if (usAqi <= 100) return { label: "Moderate", color: "#f59e0b" };
+  if (usAqi <= 150) return { label: "Sensitive", color: "#f97316" };
+  if (usAqi <= 200) return { label: "Unhealthy", color: "#ef4444" };
+  return { label: "Hazardous", color: "#a855f7" };
+}
+
+// In-memory cache (60 seconds per city)
 const weatherCache = new Map();
 
-/**
- * Dynamic Geocoding fallback:
- * If a city or town is not in PAN_INDIA_COORDINATES, query OpenStreetMap Nominatim
- * so that 100% of Indian cities, towns, and districts can return live real-time weather!
- */
 async function geocodeUnknownCity(cityName) {
   try {
     const clean = cityName.replace(/[^a-zA-Z0-9\s]/g, "").trim();
@@ -179,9 +183,7 @@ async function geocodeUnknownCity(cityName) {
         };
       }
     }
-  } catch (err) {
-    // quiet fallback
-  }
+  } catch (err) {}
   return null;
 }
 
@@ -194,7 +196,6 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
 
   let coords = PAN_INDIA_COORDINATES[cleanCity];
 
-  // If not found directly, check partial match
   if (!coords) {
     for (const key of Object.keys(PAN_INDIA_COORDINATES)) {
       if (cleanCity.includes(key) || key.includes(cleanCity)) {
@@ -204,17 +205,14 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
     }
   }
 
-  // If still not found and fallback coords provided, use them
   if (!coords && fallbackLat && fallbackLon) {
     coords = { lat: fallbackLat, lon: fallbackLon, name: cityOrQuery, state: "India" };
   }
 
-  // If still not found, dynamically geocode via OpenStreetMap
   if (!coords) {
     const geo = await geocodeUnknownCity(cityOrQuery);
     if (geo) {
       coords = geo;
-      // Cache this coordinate for subsequent requests
       PAN_INDIA_COORDINATES[cleanCity] = geo;
     } else {
       coords = { lat: 28.6139, lon: 77.2090, name: cityOrQuery, state: "India" };
@@ -222,17 +220,38 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
   }
 
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&timezone=auto`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+    const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${coords.lat}&longitude=${coords.lon}&current=us_aqi,pm10,pm2_5`;
 
-    const res = await fetch(url, { signal: controller.signal });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    const [weatherRes, aqiRes] = await Promise.all([
+      fetch(weatherUrl, { signal: controller.signal }),
+      fetch(aqiUrl, { signal: controller.signal }).catch(() => null)
+    ]);
     clearTimeout(timeout);
 
-    if (res.ok) {
-      const data = await res.json();
+    if (weatherRes.ok) {
+      const data = await weatherRes.json();
       const current = data.current || {};
       const { condition, icon, warning } = wmoCodeToCondition(current.weather_code);
+
+      let aqiData = null;
+      if (aqiRes && aqiRes.ok) {
+        const aqiJson = await aqiRes.json().catch(() => null);
+        if (aqiJson && aqiJson.current) {
+          const usAqi = Math.round(aqiJson.current.us_aqi ?? 65);
+          const aqiCat = getAqiCategory(usAqi);
+          aqiData = {
+            usAqi,
+            pm25: Number((aqiJson.current.pm2_5 ?? 18).toFixed(1)),
+            pm10: Number((aqiJson.current.pm10 ?? 35).toFixed(1)),
+            label: aqiCat.label,
+            color: aqiCat.color
+          };
+        }
+      }
 
       const result = {
         city: coords.name || cityOrQuery,
@@ -248,8 +267,9 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
         icon,
         warning,
         visibility: condition === "Fog" ? 2 : condition === "Heavy Rain" ? 4 : 9,
+        aqi: aqiData,
         isLiveApi: true,
-        source: "Open-Meteo Pan-India Real-Time Grid",
+        source: "Open-Meteo Real-Time Weather & AQI Grid",
         fetchedAt: new Date().toISOString()
       };
 
@@ -257,11 +277,10 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
       return result;
     }
   } catch (err) {
-    console.warn(`Live weather fetch failed for ${cityOrQuery}, using fallback:`, err.message);
+    console.warn(`Live weather fetch failed for ${cityOrQuery}:`, err.message);
   }
 
-  // Deterministic fallback
-  const fallback = {
+  return {
     city: coords.name || cityOrQuery,
     state: coords.state || "India",
     location: `${coords.name || cityOrQuery}, ${coords.state || "India"}`,
@@ -275,11 +294,11 @@ async function fetchRealTimeWeather(cityOrQuery = "Delhi", fallbackLat = null, f
     icon: "☀️",
     warning: null,
     visibility: 8,
+    aqi: { usAqi: 72, pm25: 21.4, pm10: 42.0, label: "Moderate", color: "#f59e0b" },
     isLiveApi: false,
-    source: "FlowSense Offline Fallback Grid",
+    source: "FlowSense Standby Grid",
     fetchedAt: new Date().toISOString()
   };
-  return fallback;
 }
 
 module.exports = {

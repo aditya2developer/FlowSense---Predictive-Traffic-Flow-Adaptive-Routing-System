@@ -345,12 +345,43 @@ class MemoryStore {
       email: userData.email.toLowerCase().trim(),
       passwordHash: bcrypt.hashSync(userData.password, 10),
       role: userData.role || "PUBLIC",
+      phone: userData.phone || "",
+      city: userData.city || "",
+      state: userData.state || "",
       department: userData.department || "Commuter",
       badgeNumber: userData.badgeNumber || "",
+      rank: userData.rank || "",
+      stationName: userData.stationName || "",
+      idProofImage: userData.idProofImage || "",
+      isEmailVerified: Boolean(userData.isEmailVerified),
+      verificationStatus: userData.verificationStatus || "VERIFIED",
+      verifiedBy: "",
+      verificationNotes: "",
+      lastLoginAt: new Date().toISOString(),
       createdAt: new Date().toISOString()
     };
     users.push(newUser);
     const { passwordHash, ...safe } = newUser;
+    return safe;
+  }
+
+  static updateUserProfile(id, updates) {
+    const user = users.find((u) => String(u._id) === String(id));
+    if (!user) return null;
+    Object.assign(user, updates);
+    const { passwordHash, ...safe } = user;
+    return safe;
+  }
+
+  static verifyUser(id, status, verifiedBy, notes = "") {
+    const user = users.find((u) => String(u._id) === String(id));
+    if (!user) return null;
+    user.verificationStatus = status;
+    user.verifiedBy = verifiedBy || "Admin";
+    user.verifiedAt = new Date().toISOString();
+    user.verificationNotes = notes;
+    if (status === "VERIFIED") user.isEmailVerified = true;
+    const { passwordHash, ...safe } = user;
     return safe;
   }
 
@@ -422,14 +453,27 @@ class MemoryStore {
       severity: data.severity || "MEDIUM",
       description: data.description,
       reportedBy: data.reportedBy || "Citizen",
+      reporterEmail: data.reporterEmail || "",
       contactPhone: data.contactPhone || "",
       location: data.location || data.roadName,
       recommendation: data.recommendation || "Drive with caution; slow down.",
+      images: Array.isArray(data.images) ? data.images.slice(0, 3) : [],
+      upvotes: 1,
+      coordinates: data.coordinates || null,
       status: "ACTIVE",
       reportedAt: new Date().toISOString()
     };
     incidents.unshift(newInc);
     return newInc;
+  }
+
+  static upvoteIncident(id) {
+    const inc = incidents.find((i) => String(i._id) === String(id));
+    if (inc) {
+      inc.upvotes = (inc.upvotes || 1) + 1;
+      return inc;
+    }
+    return null;
   }
 
   static updateIncidentStatus(id, status) {

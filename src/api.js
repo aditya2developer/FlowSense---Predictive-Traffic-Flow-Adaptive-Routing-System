@@ -41,14 +41,26 @@ async function apiFetch(endpoint, options = {}, timeoutMs = 8000) {
 }
 
 // ==========================================
-// AUTHENTICATION APIs
+// AUTHENTICATION, CAPTCHA, OTP & PROFILE APIs
 // ==========================================
 
-export async function loginUser(email, password, role) {
+export async function fetchCaptcha() {
+  return apiFetch("/api/auth/captcha", {}, 5000);
+}
+
+export async function sendOtp(email, purpose = "REGISTER") {
+  return apiFetch("/api/auth/send-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, purpose })
+  }, 6000);
+}
+
+export async function loginUser(email, password, role, captchaToken, captchaAnswer) {
   return apiFetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, role })
+    body: JSON.stringify({ email, password, role, captchaToken, captchaAnswer })
   });
 }
 
@@ -57,7 +69,37 @@ export async function registerUser(userData) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData)
-  });
+  }, 12000);
+}
+
+export async function updateUserProfile(profileData) {
+  return apiFetch("/api/auth/profile", {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(profileData)
+  }, 10000);
+}
+
+export async function changeUserPassword(payload) {
+  return apiFetch("/api/auth/change-password", {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  }, 8000);
+}
+
+export async function resetUserPassword(payload) {
+  return apiFetch("/api/auth/reset-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }, 8000);
+}
+
+export async function fetchMyReports() {
+  return apiFetch("/api/auth/my-reports", {
+    headers: getAuthHeaders()
+  }, 6000);
 }
 
 export async function fetchCurrentUser() {
@@ -104,6 +146,25 @@ export async function resolveIncident(id) {
     method: "PATCH",
     headers: getAuthHeaders()
   });
+}
+
+export async function upvoteIncident(id) {
+  return apiFetch(`/api/routes/incidents/${id}/upvote`, {
+    method: "POST",
+    headers: getAuthHeaders()
+  });
+}
+
+export async function reverseGeocodeCoords(lat, lon) {
+  return apiFetch(`/api/routes/reverse-geocode?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`, {}, 6000);
+}
+
+export async function fetchNearbyServices(lat, lon, radius = 5000) {
+  return apiFetch(`/api/routes/nearby-services?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&radius=${radius}`, {}, 8000);
+}
+
+export async function fetchLiveFeed() {
+  return apiFetch("/api/routes/live-feed", {}, 8000);
 }
 
 export async function fetchWeather(city = "Delhi") {
@@ -181,6 +242,14 @@ export async function updateUserRole(userId, newRole) {
     method: "PATCH",
     headers: getAuthHeaders(),
     body: JSON.stringify({ role: newRole })
+  });
+}
+
+export async function verifyAdminUser(userId, status, notes = "") {
+  return apiFetch(`/api/admin/users/${userId}/verify`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status, notes })
   });
 }
 

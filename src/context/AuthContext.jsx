@@ -1,5 +1,11 @@
 import { createContext, useContext, useState, useEffect } from "react";
-import { loginUser, registerUser, fetchCurrentUser } from "../api";
+import {
+  loginUser,
+  registerUser,
+  fetchCurrentUser,
+  updateUserProfile,
+  changeUserPassword
+} from "../api";
 
 const AuthContext = createContext(null);
 
@@ -32,9 +38,24 @@ export function AuthProvider({ children }) {
     }
   }, [token]);
 
-  // Real-time Authentication against MongoDB
-  async function login(email, password, role) {
-    const res = await loginUser(email, password, role);
+  async function refreshUser() {
+    if (!token) return null;
+    try {
+      const res = await fetchCurrentUser();
+      if (res.success && res.user) {
+        setUser(res.user);
+        localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+        return res.user;
+      }
+    } catch {
+      // keep cached user if transient network error
+    }
+    return null;
+  }
+
+  // Real-time Authentication against MongoDB with CAPTCHA
+  async function login(email, password, role, captchaToken, captchaAnswer) {
+    const res = await loginUser(email, password, role, captchaToken, captchaAnswer);
     if (res.success && res.token && res.user) {
       setUser(res.user);
       setToken(res.token);
@@ -44,7 +65,7 @@ export function AuthProvider({ children }) {
     return res;
   }
 
-  // Real-time User Registration directly saved to MongoDB
+  // Real-time Confidential User Registration directly saved to MongoDB
   async function register(userData) {
     const res = await registerUser(userData);
     if (res.success && res.token && res.user) {
@@ -52,6 +73,25 @@ export function AuthProvider({ children }) {
       setToken(res.token);
       localStorage.setItem("flowsense_token", res.token);
       localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+    }
+    return res;
+  }
+
+  // Real-time Profile Update saved to MongoDB
+  async function updateProfile(profileData) {
+    const res = await updateUserProfile(profileData);
+    if (res.success && res.user) {
+      setUser(res.user);
+      localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+    }
+    return res;
+  }
+
+  // Confidential Password Change with OTP Verification
+  async function changePassword(payload) {
+    const res = await changeUserPassword(payload);
+    if (res.success) {
+      await refreshUser();
     }
     return res;
   }
@@ -68,6 +108,7 @@ export function AuthProvider({ children }) {
   const isAdmin = isAuthenticated && role === "ADMIN";
   const isAuthority = isAuthenticated && (role === "AUTHORITY" || role === "ADMIN");
   const isPublic = isAuthenticated && (role === "PUBLIC" || role === "ADMIN");
+  const isVerified = isAuthenticated && (user?.verificationStatus || "VERIFIED") === "VERIFIED";
 
   return (
     <AuthContext.Provider
@@ -78,10 +119,14 @@ export function AuthProvider({ children }) {
         isAdmin,
         isAuthority,
         isPublic,
+        isVerified,
         isAuthenticated,
         loading,
         login,
         register,
+        updateProfile,
+        changePassword,
+        refreshUser,
         logout
       }}
     >

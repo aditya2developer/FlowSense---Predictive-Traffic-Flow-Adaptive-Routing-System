@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   fetchEnforcementStats,
   fetchIncidents,
@@ -27,7 +28,8 @@ import {
   Building2,
   Flame,
   Droplets,
-  Construction
+  Construction,
+  FileBadge2
 } from "lucide-react";
 import MapView from "../components/MapView";
 
@@ -223,6 +225,45 @@ function AuthorityPortal() {
     } catch (err) {
       console.error(err);
     }
+  }
+
+  const isPolicePending =
+    user?.role === "AUTHORITY" &&
+    user?.verificationStatus &&
+    user.verificationStatus !== "VERIFIED";
+
+  if (isPolicePending) {
+    return (
+      <div className="authority-portal-wrapper">
+        <div className="portal-card" style={{ maxWidth: 660, margin: "40px auto", textAlign: "center" }}>
+          <div className="role-icon-box" style={{ borderColor: "#f59e0b", marginBottom: 16 }}>
+            <Clock size={28} color="#f59e0b" />
+          </div>
+          <span className="verified-chip chip-status-pending" style={{ marginBottom: 12 }}>
+            <FileBadge2 size={13} /> Status: {user.verificationStatus}
+          </span>
+          <h1 style={{ fontSize: 24, margin: "8px 0 12px" }}>
+            Police Command Access Awaiting Admin Verification
+          </h1>
+          <p style={{ color: "#94a3b8", lineHeight: 1.6 }}>
+            Welcome Officer <strong>{user.name}</strong> (Badge: <code>{user.badgeNumber || "Submitted"}</code>).
+            For national traffic security, newly registered Police accounts must have their
+            Official Badge &amp; ID Proof verified by a Root Administrator before dispatching Green
+            Corridors or Emergency Broadcasts.
+          </p>
+          {user.verificationNotes && (
+            <div className="verification-rejected-callout" style={{ textAlign: "left", marginTop: 14 }}>
+              <strong>Admin Remarks:</strong> {user.verificationNotes}
+            </div>
+          )}
+          <div style={{ marginTop: 22, display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
+            <Link to="/profile" className="cyber-submit-btn" style={{ textDecoration: "none", width: "auto" }}>
+              Check Verification Status &amp; ID Proof
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -454,7 +495,14 @@ function AuthorityPortal() {
                         <td style={{ maxWidth: 200 }}>
                           <div>{inc.description}</div>
                           {inc.location && <div className="location-hint">📍 {inc.location}</div>}
-                          <div className="reporter-hint">By {inc.reportedBy}</div>
+                          <div className="reporter-hint">By {inc.reportedBy} • 👍 {inc.upvotes || 1}</div>
+                          {Array.isArray(inc.images) && inc.images.length > 0 && (
+                            <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                              {inc.images.map((src, i) => (
+                                <img key={i} src={src} alt="Evidence" className="admin-inc-thumb" />
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td style={{ maxWidth: 260 }}>
                           <div className="police-action-plan-cell">
