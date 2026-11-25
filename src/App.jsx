@@ -16,6 +16,17 @@ import EmergencyAlertModal from "./components/EmergencyAlertModal";
 import FlowSenseChatbot from "./components/FlowSenseChatbot";
 import "./App.css";
 
+function RequireAuth({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) {
+    return <div className="page-loading-state">Verifying session…</div>;
+  }
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+}
+
 function ProtectedUserRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
   if (loading) {
@@ -66,9 +77,12 @@ function App() {
 
             <main className="flowsense-main">
               <Routes>
-                <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login />} />
-                <Route path="/dashboard" element={<Dashboard />} />
+
+                <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
+                <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
+                <Route path="/report" element={<RequireAuth><IncidentReport /></RequireAuth>} />
+                <Route path="/contact" element={<RequireAuth><ContactHelpline /></RequireAuth>} />
                 <Route
                   path="/database"
                   element={
@@ -77,8 +91,6 @@ function App() {
                     </ProtectedAdminRoute>
                   }
                 />
-                <Route path="/report" element={<IncidentReport />} />
-                <Route path="/contact" element={<ContactHelpline />} />
 
                 <Route
                   path="/profile"
@@ -106,7 +118,7 @@ function App() {
                   }
                 />
 
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to="/login" replace />} />
               </Routes>
             </main>
 
