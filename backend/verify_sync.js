@@ -173,6 +173,15 @@ async function run() {
     const userCountAfter = await User2.countDocuments();
     log(userCountAfter >= userCountBefore, 'PASS 15: Users preserved after reseed', `before=${userCountBefore}, after=${userCountAfter}`);
 
+    // ====== TEST 16: Admin email-config status & systemconfigs hidden from explorer ======
+    const emailCfgRes = await req('GET', '/api/admin/email-config', null, adminToken);
+    const colNames = (dbRes?.collections || []).map((c) => c.name);
+    log(
+      emailCfgRes.success && emailCfgRes.data && !('smtpPass' in emailCfgRes.data) && !colNames.includes('systemconfigs'),
+      'PASS 16: Admin email-config masked & systemconfigs hidden',
+      `provider=${emailCfgRes?.data?.activeProvider}`
+    );
+
     // ====== CLEANUP ======
     await Incident.deleteOne({ type: 'WATERLOGGING', description: /Verification test/i });
     await ContactMessage.deleteOne({ email: 'test@verify.com' });

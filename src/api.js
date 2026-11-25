@@ -335,6 +335,28 @@ export async function triggerBroadcastAlert(alertData) {
   });
 }
 
+export async function fetchEmailGatewayConfig() {
+  return apiFetch("/api/admin/email-config", {
+    headers: getAuthHeaders()
+  }, 5000);
+}
+
+export async function saveEmailGatewayConfig(payload) {
+  return apiFetch("/api/admin/email-config", {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  }, 8000);
+}
+
+export async function sendTestEmailGateway(to) {
+  return apiFetch("/api/admin/email-test", {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ to })
+  }, 14000);
+}
+
 export async function checkBackendHealth() {
   try {
     const res = await apiFetch("/api/health", {}, 3000);

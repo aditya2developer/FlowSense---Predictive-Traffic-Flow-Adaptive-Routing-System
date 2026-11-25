@@ -15,7 +15,10 @@ import {
   updateIncidentStatus,
   deleteIncident,
   reseedDatabase,
-  triggerBroadcastAlert
+  triggerBroadcastAlert,
+  fetchEmailGatewayConfig,
+  saveEmailGatewayConfig,
+  sendTestEmailGateway
 } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { soundAlert } from "../utils/soundAlert";
@@ -39,7 +42,9 @@ import {
   BadgeCheck,
   Clock,
   XCircle,
-  ThumbsUp
+  ThumbsUp,
+  Mail,
+  Send
 } from "lucide-react";
 
 function AdminPortal() {
@@ -79,20 +84,39 @@ function AdminPortal() {
   const [broadcastMsg, setBroadcastMsg] = useState("Severe congestion & emergency corridor activation. Yield to emergency responders.");
   const [broadcastRoad, setBroadcastRoad] = useState("All National Highways & Expressways");
 
+  // Email OTP Gateway State
+  const [emailStatus, setEmailStatus] = useState(null);
+  const [emailForm, setEmailForm] = useState({
+    brevoApiKey: "",
+    resendApiKey: "",
+    emailWebhookUrl: "",
+    emailFrom: "",
+    smtpHost: "",
+    smtpPort: "465",
+    smtpUser: "",
+    smtpPass: ""
+  });
+  const [testEmailTo, setTestEmailTo] = useState(user?.email || "");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailFeedback, setEmailFeedback] = useState(null);
+
   async function loadAdminData() {
     setLoading(true);
     try {
-      const [statsRes, usersRes, segmentsRes, incidentsRes] = await Promise.all([
+      const [statsRes, usersRes, segmentsRes, incidentsRes, emailRes] = await Promise.all([
         fetchAdminStats().catch(() => ({ success: false })),
         fetchAdminUsers().catch(() => ({ success: false, data: [] })),
         fetchAdminSegments().catch(() => ({ success: false, data: [] })),
-        fetchAdminIncidents().catch(() => ({ success: false, data: [] }))
+        fetchAdminIncidents().catch(() => ({ success: false, data: [] })),
+        fetchEmailGatewayConfig().catch(() => ({ success: false }))
       ]);
 
       if (statsRes.success) setData(statsRes.data);
       if (usersRes.success) setUsersList(usersRes.data || []);
       if (segmentsRes.success) setSegmentsList(segmentsRes.data || []);
       if (incidentsRes.success) setIncidentsList(incidentsRes.data || []);
+      if (emailRes.success) setEmailStatus(emailRes.data || null);
     } finally {
       setLoading(false);
     }
@@ -105,14 +129,16 @@ function AdminPortal() {
       fetchAdminStats().catch(() => ({ success: false })),
       fetchAdminUsers().catch(() => ({ success: false, data: [] })),
       fetchAdminSegments().catch(() => ({ success: false, data: [] })),
-      fetchAdminIncidents().catch(() => ({ success: false, data: [] }))
+      fetchAdminIncidents().catch(() => ({ success: false, data: [] })),
+      fetchEmailGatewayConfig().catch(() => ({ success: false }))
     ])
-      .then(([statsRes, usersRes, segmentsRes, incidentsRes]) => {
+      .then(([statsRes, usersRes, segmentsRes, incidentsRes, emailRes]) => {
         if (!active) return;
         if (statsRes.success) setData(statsRes.data);
         if (usersRes.success) setUsersList(usersRes.data || []);
         if (segmentsRes.success) setSegmentsList(segmentsRes.data || []);
         if (incidentsRes.success) setIncidentsList(incidentsRes.data || []);
+        if (emailRes.success) setEmailStatus(emailRes.data || null);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -341,6 +367,55 @@ function AdminPortal() {
     }
   }
 
+  async function handleSaveEmailConfig(e) {
+    e.preventDefault();
+    setEmailSaving(true);
+    setEmailFeedback(null);
+    try {
+      const res = await saveEmailGatewayConfig(emailForm);
+      if (res.success) {
+        setEmailStatus(res.data || null);
+        setEmailForm((prev) => ({
+          ...prev,
+          brevoApiKey: "",
+          resendApiKey: "",
+          smtpPass: ""
+        }));
+        setEmailFeedback({ ok: true, text: res.message || "Email OTP Gateway settings saved to MongoDB." });
+        notify("Email OTP Gateway updated.");
+      } else {
+        setEmailFeedback({ ok: false, text: res.message || "Failed to save email settings." });
+      }
+    } catch (err) {
+      setEmailFeedback({ ok: false, text: err.message });
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
+  async function handleSendTestEmail(e) {
+    e.preventDefault();
+    const target = (testEmailTo || user?.email || "").trim();
+    if (!target) {
+      setEmailFeedback({ ok: false, text: "Enter a recipient email address for the test." });
+      return;
+    }
+    setEmailTesting(true);
+    setEmailFeedback(null);
+    try {
+      const res = await sendTestEmailGateway(target);
+      if (res.success) {
+        setEmailFeedback({ ok: true, text: res.message || `Test OTP email sent to ${target}.` });
+      } else {
+        setEmailFeedback({ ok: false, text: res.message || "Test email delivery failed." });
+      }
+    } catch (err) {
+      setEmailFeedback({ ok: false, text: err.message });
+    } finally {
+      setEmailTesting(false);
+    }
+  }
+
   // Unauthenticated / Auth Gate View
   if (!isAdmin) {
     return (
@@ -547,6 +622,17 @@ function AdminPortal() {
           onClick={() => setActiveTab("ml")}
         >
           <Cpu size={16} /> ML &amp; Algorithm Benchmarks
+        </button>
+
+        <button
+          type="button"
+          className={`admin-tab-btn ${activeTab === "email" ? "active" : ""}`}
+          onClick={() => setActiveTab("email")}
+        >
+          <Mail size={16} /> Email OTP Gateway
+          {emailStatus && !emailStatus.configured && (
+            <span className="pending-count-badge">Setup Needed</span>
+          )}
         </button>
       </div>
 
@@ -1212,6 +1298,210 @@ function AdminPortal() {
               </div>
             </div>
           </section>
+        </div>
+      )}
+
+      {/* TAB CONTENT: EMAIL OTP GATEWAY */}
+      {activeTab === "email" && (
+        <div className="admin-tab-content">
+          <div className="admin-grid-two-col">
+            <section className="portal-card">
+              <div className="portal-card-header">
+                <div>
+                  <h2>Email OTP Delivery Configuration</h2>
+                  <p>
+                    Configure a live sender provider so OTP verification emails deliver directly to user inboxes.
+                    Secrets are stored securely on the server and never exposed in browser APIs.
+                  </p>
+                </div>
+                <span className={emailStatus?.configured ? "live-pulse-badge" : "status-badge sev-high"}>
+                  {emailStatus?.configured
+                    ? `Active: ${emailStatus.activeProvider} (${emailStatus.source})`
+                    : "Not Configured"}
+                </span>
+              </div>
+
+              {emailFeedback && (
+                <div
+                  className={emailFeedback.ok ? "auth-success-banner" : "auth-error-banner"}
+                  style={{ marginBottom: 14 }}
+                >
+                  {emailFeedback.ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                  <span>{emailFeedback.text}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveEmailConfig} className="admin-modal-form" style={{ padding: 0 }}>
+                <div className="auth-input-group">
+                  <label>Brevo API Key (Recommended for Render / Cloud — 300 free emails/day via HTTPS)</label>
+                  <input
+                    type="password"
+                    placeholder={emailStatus?.hasBrevoKey ? "Saved (enter new key to replace)" : "xkeysib-..."}
+                    value={emailForm.brevoApiKey}
+                    onChange={(e) => setEmailForm({ ...emailForm, brevoApiKey: e.target.value })}
+                  />
+                </div>
+
+                <div className="auth-input-group">
+                  <label>Google Apps Script / HTTPS Mail Webhook URL (Free Gmail HTTPS relay)</label>
+                  <input
+                    type="url"
+                    placeholder={emailStatus?.hasWebhookUrl ? "Saved webhook URL (enter new URL to replace)" : "https://script.google.com/macros/s/.../exec"}
+                    value={emailForm.emailWebhookUrl}
+                    onChange={(e) => setEmailForm({ ...emailForm, emailWebhookUrl: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-row-split">
+                  <div className="auth-input-group">
+                    <label>Gmail / SMTP Sender Email (EMAIL_USER)</label>
+                    <input
+                      type="email"
+                      placeholder={emailStatus?.maskedUser || "yourname@gmail.com"}
+                      value={emailForm.smtpUser}
+                      onChange={(e) => setEmailForm({ ...emailForm, smtpUser: e.target.value })}
+                    />
+                  </div>
+                  <div className="auth-input-group">
+                    <label>16-Digit Google App Password (EMAIL_PASS)</label>
+                    <input
+                      type="password"
+                      placeholder={emailStatus?.hasSmtpPass ? "Saved (enter new password to replace)" : "abcd efgh ijkl mnop"}
+                      value={emailForm.smtpPass}
+                      onChange={(e) => setEmailForm({ ...emailForm, smtpPass: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-split">
+                  <div className="auth-input-group">
+                    <label>Sender Display / From Email (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder={emailStatus?.emailFrom || "verified-sender@gmail.com"}
+                      value={emailForm.emailFrom}
+                      onChange={(e) => setEmailForm({ ...emailForm, emailFrom: e.target.value })}
+                    />
+                  </div>
+                  <div className="auth-input-group">
+                    <label>Resend API Key (Optional HTTPS API)</label>
+                    <input
+                      type="password"
+                      placeholder={emailStatus?.hasResendKey ? "Saved (enter new key to replace)" : "re_..."}
+                      value={emailForm.resendApiKey}
+                      onChange={(e) => setEmailForm({ ...emailForm, resendApiKey: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-split">
+                  <div className="auth-input-group">
+                    <label>Custom SMTP Host (Blank = Gmail)</label>
+                    <input
+                      type="text"
+                      placeholder={emailStatus?.smtpHost || "smtp.gmail.com"}
+                      value={emailForm.smtpHost}
+                      onChange={(e) => setEmailForm({ ...emailForm, smtpHost: e.target.value })}
+                    />
+                  </div>
+                  <div className="auth-input-group">
+                    <label>SMTP Port</label>
+                    <input
+                      type="number"
+                      placeholder="465"
+                      value={emailForm.smtpPort}
+                      onChange={(e) => setEmailForm({ ...emailForm, smtpPort: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="auth-submit-btn"
+                  disabled={emailSaving}
+                  style={{ background: "linear-gradient(135deg, #06b6d4, #2563eb)", marginTop: 8 }}
+                >
+                  {emailSaving ? "Saving Gateway Settings..." : "Save Email OTP Gateway"}
+                </button>
+              </form>
+            </section>
+
+            <section className="portal-card">
+              <div className="portal-card-header">
+                <h2>Test Live Email Delivery &amp; Setup Guide</h2>
+              </div>
+
+              <form onSubmit={handleSendTestEmail} className="admin-modal-form" style={{ padding: 0, marginBottom: 18 }}>
+                <div className="auth-input-group">
+                  <label>Recipient Inbox for Live Test</label>
+                  <div className="email-otp-action-row">
+                    <input
+                      type="email"
+                      required
+                      placeholder="Enter email address to test"
+                      value={testEmailTo}
+                      onChange={(e) => setTestEmailTo(e.target.value)}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="submit"
+                      className="send-otp-btn"
+                      disabled={emailTesting}
+                    >
+                      <Send size={14} />
+                      <span>{emailTesting ? "Sending..." : "Send Test Email"}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              <div className="db-stats-matrix">
+                <div className="matrix-stat-item">
+                  <span className="matrix-stat-label">Active Provider</span>
+                  <strong>{emailStatus?.activeProvider || "NONE"}</strong>
+                </div>
+                <div className="matrix-stat-item">
+                  <span className="matrix-stat-label">Config Source</span>
+                  <strong>{emailStatus?.source || "NONE"}</strong>
+                </div>
+                <div className="matrix-stat-item">
+                  <span className="matrix-stat-label">Brevo / Resend / Webhook</span>
+                  <strong>
+                    {[
+                      emailStatus?.hasBrevoKey && "Brevo",
+                      emailStatus?.hasWebhookUrl && "Webhook",
+                      emailStatus?.hasResendKey && "Resend"
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "None"}
+                  </strong>
+                </div>
+                <div className="matrix-stat-item">
+                  <span className="matrix-stat-label">SMTP / Gmail</span>
+                  <strong>{emailStatus?.hasSmtpPass ? emailStatus.maskedUser : "Not Set"}</strong>
+                </div>
+              </div>
+
+              <div className="police-verification-notice" style={{ marginTop: 16 }}>
+                <Mail size={18} className="text-cyan" style={{ flexShrink: 0 }} />
+                <div>
+                  <strong>Zero-Block Cloud Delivery Tip (Render / Free Hosting)</strong>
+                  <p style={{ marginTop: 4, fontSize: 12, lineHeight: 1.5 }}>
+                    Many free cloud hosts block outbound SMTP ports (465/587). Use either a free{" "}
+                    <strong>Brevo API Key</strong> (300 emails/day via HTTPS) or deploy this 4-line{" "}
+                    <strong>Google Apps Script</strong> as a Web App using your Gmail account:
+                  </p>
+                  <pre style={{ marginTop: 8, padding: 8, background: "#050a14", borderRadius: 6, fontSize: 11, overflowX: "auto", color: "#93c5fd" }}>
+{`function doPost(e) {
+  var d = JSON.parse(e.postData.contents);
+  GmailApp.sendEmail(d.to, d.subject, d.text, { htmlBody: d.html });
+  return ContentService.createTextOutput('{"ok":true}');
+}`}
+                  </pre>
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
       )}
 

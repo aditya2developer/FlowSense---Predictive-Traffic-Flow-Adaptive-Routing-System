@@ -11,6 +11,11 @@ const ContactMessage = require("../models/ContactMessage");
 const MemoryStore = require("../utils/memoryStore");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { runSeed } = require("../seedData");
+const {
+  getEmailConfigStatus,
+  saveEmailGatewayConfig,
+  sendTestEmail
+} = require("../utils/emailService");
 
 const router = express.Router();
 
@@ -532,6 +537,59 @@ router.post("/broadcast-alert", authenticate, requireRole("ADMIN"), async (req, 
       success: true,
       message: "Emergency Siren Broadcast issued to all portals.",
       data: savedMem
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ==========================================
+// 6. EMAIL OTP GATEWAY CONFIGURATION & DIAGNOSTICS
+// ==========================================
+router.get("/email-config", authenticate, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const status = await getEmailConfigStatus();
+    return res.json({ success: true, data: status });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.put("/email-config", authenticate, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const updated = await saveEmailGatewayConfig(req.body || {}, req.user?.name || "Admin");
+    return res.json({
+      success: true,
+      message: updated.configured
+        ? `Email OTP Gateway saved (${updated.activeProvider} active).`
+        : "Email OTP Gateway settings updated.",
+      data: updated
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+router.post("/email-test", authenticate, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const recipient = String(req.body?.to || req.user?.email || "").trim().toLowerCase();
+    if (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid recipient email address is required for gateway test."
+      });
+    }
+    const result = await sendTestEmail({ to: recipient });
+    if (!result.sent) {
+      return res.status(503).json({
+        success: false,
+        message: result.reason || "Test email delivery failed."
+      });
+    }
+    return res.json({
+      success: true,
+      provider: result.provider,
+      message: `Test verification email delivered to ${recipient} via ${result.provider}.`
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });

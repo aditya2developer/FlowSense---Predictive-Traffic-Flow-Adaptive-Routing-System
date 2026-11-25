@@ -5,7 +5,7 @@ const { authenticate, requireRole } = require("../middleware/auth");
 const router = express.Router();
 
 // Internal security collections that must NEVER be browsed
-const ALWAYS_HIDDEN_COLLECTIONS = new Set(["otprecords"]);
+const ALWAYS_HIDDEN_COLLECTIONS = new Set(["otprecords", "systemconfigs"]);
 // Confidential PII collections restricted strictly to Global Admin
 const ADMIN_ONLY_COLLECTIONS = new Set(["users", "contactmessages"]);
 
