@@ -108,13 +108,18 @@ export async function fetchCurrentUser() {
   }, 4000);
 }
 
-export async function fetchDemoUsers() {
-  return apiFetch("/api/auth/demo-users");
-}
+// ==========================================
+// ROUTING, LIVE AUTOCOMPLETE & TRAFFIC APIs
+// ==========================================
 
-// ==========================================
-// ROUTING & TRAFFIC MEMORY APIs
-// ==========================================
+export async function fetchLiveAutocomplete(query, lat, lon) {
+  const params = new URLSearchParams({ q: query });
+  if (lat !== undefined && lon !== undefined) {
+    params.set("lat", lat);
+    params.set("lon", lon);
+  }
+  return apiFetch(`/api/routes/autocomplete?${params.toString()}`, {}, 4500);
+}
 
 export async function searchRoutes(from, to) {
   return apiFetch("/api/routes/search", {
@@ -163,8 +168,9 @@ export async function fetchNearbyServices(lat, lon, radius = 5000) {
   return apiFetch(`/api/routes/nearby-services?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&radius=${radius}`, {}, 8000);
 }
 
-export async function fetchLiveFeed() {
-  return apiFetch("/api/routes/live-feed", {}, 8000);
+export async function fetchLiveFeed(city) {
+  const q = city ? `?city=${encodeURIComponent(city)}` : "";
+  return apiFetch(`/api/routes/live-feed${q}`, {}, 8000);
 }
 
 export async function fetchWeather(city = "Delhi") {
@@ -247,6 +253,14 @@ export async function updateUserRole(userId, newRole) {
 
 export async function verifyAdminUser(userId, status, notes = "") {
   return apiFetch(`/api/admin/users/${userId}/verify`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status, notes })
+  });
+}
+
+export async function verifyUserProfileUpdate(userId, status, notes = "") {
+  return apiFetch(`/api/admin/users/${userId}/verify-profile-update`, {
     method: "PATCH",
     headers: getAuthHeaders(),
     body: JSON.stringify({ status, notes })
@@ -359,7 +373,7 @@ export async function sendChatMessage(message) {
 // ==========================================
 
 export async function fetchDatabaseOverview() {
-  return apiFetch("/api/database/overview", {}, 6000);
+  return apiFetch("/api/database/overview", { headers: getAuthHeaders() }, 6000);
 }
 
 export async function fetchCollectionDocuments(collectionName, { page = 1, limit = 20, search = "", sortBy = "_id", sortOrder = "desc" } = {}) {
@@ -370,14 +384,36 @@ export async function fetchCollectionDocuments(collectionName, { page = 1, limit
     sortBy,
     sortOrder
   }).toString();
-  return apiFetch(`/api/database/collection/${encodeURIComponent(collectionName)}?${query}`, {}, 7000);
+  return apiFetch(`/api/database/collection/${encodeURIComponent(collectionName)}?${query}`, {
+    headers: getAuthHeaders()
+  }, 7000);
 }
 
 export async function fetchDocumentDetails(collectionName, id) {
-  return apiFetch(`/api/database/document/${encodeURIComponent(collectionName)}/${encodeURIComponent(id)}`, {}, 5000);
+  return apiFetch(`/api/database/document/${encodeURIComponent(collectionName)}/${encodeURIComponent(id)}`, {
+    headers: getAuthHeaders()
+  }, 5000);
 }
 
 export function getDatabaseExportUrl(collectionName) {
   return `${BASE_URL}/api/database/export/${encodeURIComponent(collectionName)}`;
+}
+
+export async function downloadCollectionExport(collectionName) {
+  const response = await fetch(getDatabaseExportUrl(collectionName), {
+    headers: getAuthHeaders()
+  });
+  if (!response.ok) {
+    throw new Error("Admin clearance required to export data.");
+  }
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `flowsense_${collectionName}_export.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 }
 

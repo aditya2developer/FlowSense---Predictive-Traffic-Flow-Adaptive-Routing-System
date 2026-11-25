@@ -67,8 +67,42 @@ function requireRole(...allowedRoles) {
   };
 }
 
+async function optionalAuthenticate(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      req.user = null;
+      return next();
+    }
+
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    let user = null;
+    if (global.isMongoConnected) {
+      try {
+        user = await User.findById(decoded.id).select("-password");
+      } catch (err) {
+        user = null;
+      }
+    }
+
+    if (!user) {
+      const MemoryStore = require("../utils/memoryStore");
+      user = MemoryStore.findUserById(decoded.id) || MemoryStore.findUserByEmail(decoded.email);
+    }
+
+    req.user = user || null;
+    next();
+  } catch {
+    req.user = null;
+    next();
+  }
+}
+
 module.exports = {
   authenticate,
+  optionalAuthenticate,
   requireRole,
   JWT_SECRET
 };

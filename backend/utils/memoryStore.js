@@ -272,39 +272,28 @@ const initialAdvisories = [
   }
 ];
 
-// Initial Seed Users
-const initialUsers = [
-  {
-    _id: "663000000000000000000001",
-    name: "Aditya Kr Singh",
-    email: "admin@flowsense.gov.in",
-    passwordHash: bcrypt.hashSync("admin", 10),
-    role: "ADMIN",
-    department: "Smart Mobility Headquarters",
-    badgeNumber: "SYS-ADMIN-01",
-    createdAt: new Date().toISOString()
-  },
-  {
-    _id: "663000000000000000000002",
-    name: "Inspector Rajesh Sharma",
-    email: "police@flowsense.gov.in",
-    passwordHash: bcrypt.hashSync("police", 10),
-    role: "AUTHORITY",
-    department: "City Traffic Police & Dispatch Wing",
-    badgeNumber: "TP-8409",
-    createdAt: new Date().toISOString()
-  },
-  {
-    _id: "663000000000000000000003",
-    name: "Priya Verma",
-    email: "citizen@flowsense.in",
-    passwordHash: bcrypt.hashSync("citizen", 10),
-    role: "PUBLIC",
-    department: "Daily Commuter (Car / Transit)",
-    badgeNumber: "CITIZEN-001",
-    createdAt: new Date().toISOString()
-  }
-];
+// Initial Seed Users (loaded only from env bootstrap vars — zero hardcoded public credentials)
+const initialUsers = (() => {
+  const email = (process.env.ADMIN_BOOTSTRAP_EMAIL || "").trim().toLowerCase();
+  const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || "";
+  if (!email || !password) return [];
+  return [
+    {
+      _id: "663000000000000000000001",
+      name: process.env.ADMIN_BOOTSTRAP_NAME || "Chief Systems Administrator",
+      email,
+      passwordHash: bcrypt.hashSync(password, 10),
+      role: "ADMIN",
+      department: "Smart Mobility Headquarters",
+      badgeNumber: "SYS-ADMIN-01",
+      city: "Delhi NCR",
+      state: "Delhi (NCT)",
+      isEmailVerified: true,
+      verificationStatus: "VERIFIED",
+      createdAt: new Date().toISOString()
+    }
+  ];
+})();
 
 // In-Memory Storage Arrays
 let users = [...initialUsers];
@@ -322,12 +311,7 @@ class MemoryStore {
     if (!user) return null;
     return {
       ...user,
-      comparePassword: async (candidate) => {
-        if (candidate === "admin" && user.email === "admin@flowsense.gov.in") return true;
-        if (candidate === "police" && user.email === "police@flowsense.gov.in") return true;
-        if (candidate === "citizen" && user.email === "citizen@flowsense.in") return true;
-        return bcrypt.compare(candidate, user.passwordHash);
-      }
+      comparePassword: async (candidate) => bcrypt.compare(candidate, user.passwordHash)
     };
   }
 
@@ -357,12 +341,50 @@ class MemoryStore {
       verificationStatus: userData.verificationStatus || "VERIFIED",
       verifiedBy: "",
       verificationNotes: "",
+      pendingProfileUpdates: null,
+      profileUpdateStatus: "NONE",
+      profileUpdateNotes: "",
+      profileUpdateRequestedAt: null,
       lastLoginAt: new Date().toISOString(),
       createdAt: new Date().toISOString()
     };
     users.push(newUser);
     const { passwordHash, ...safe } = newUser;
     return safe;
+  }
+
+  static requestProfileUpdate(id, updates) {
+    const user = users.find((u) => String(u._id) === String(id));
+    if (!user) return null;
+    user.pendingProfileUpdates = { ...(user.pendingProfileUpdates || {}), ...updates };
+    user.profileUpdateStatus = "PENDING";
+    user.profileUpdateNotes = "";
+    user.profileUpdateRequestedAt = new Date().toISOString();
+    const { passwordHash, ...safe } = user;
+    return safe;
+  }
+
+  static verifyProfileUpdate(id, status, verifiedBy, notes = "") {
+    const user = users.find((u) => String(u._id) === String(id));
+    if (!user) return null;
+    if (status === "APPROVED" && user.pendingProfileUpdates) {
+      Object.assign(user, user.pendingProfileUpdates);
+    }
+    user.pendingProfileUpdates = null;
+    user.profileUpdateStatus = status;
+    user.profileUpdateNotes = notes;
+    user.verifiedBy = verifiedBy || "Admin";
+    user.verifiedAt = new Date().toISOString();
+    const { passwordHash, ...safe } = user;
+    return safe;
+  }
+
+  static updateUserPassword(email, newPassword) {
+    const user = users.find((u) => u.email.toLowerCase() === String(email).toLowerCase().trim());
+    if (!user) return null;
+    user.passwordHash = bcrypt.hashSync(newPassword, 10);
+    user.passwordChangedAt = new Date().toISOString();
+    return user;
   }
 
   static updateUserProfile(id, updates) {

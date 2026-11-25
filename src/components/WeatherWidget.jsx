@@ -1,25 +1,32 @@
 import { useEffect, useState } from "react";
+import { useCity } from "../context/CityContext";
 import { fetchWeather, reverseGeocodeCoords } from "../api";
 import { Wind, Droplets, ChevronDown, Crosshair, Activity } from "lucide-react";
 
-const WEATHER_CITIES = [
+const QUICK_WEATHER_CITIES = [
   "Delhi",
   "Mumbai",
   "Bengaluru",
-  "Chandigarh",
-  "Jalandhar",
-  "Kolkata",
-  "Chennai",
   "Hyderabad",
-  "Pune"
+  "Chennai",
+  "Kolkata",
+  "Jaipur",
+  "Lucknow",
+  "Chandigarh",
+  "Guwahati",
+  "Bhopal",
+  "Kochi"
 ];
 
-function WeatherWidget({ initialCity, defaultCity = "Delhi" }) {
-  const [selectedCity, setSelectedCity] = useState(initialCity || defaultCity || "Delhi");
+function WeatherWidget() {
+  const { activeCity, selectCity, activeState } = useCity();
+  const [overrideCity, setOverrideCity] = useState(null);
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+
+  const selectedCity = overrideCity || activeCity || "Delhi";
 
   useEffect(() => {
     let isMounted = true;
@@ -47,7 +54,13 @@ function WeatherWidget({ initialCity, defaultCity = "Delhi" }) {
         try {
           const geo = await reverseGeocodeCoords(pos.coords.latitude, pos.coords.longitude);
           if (geo.success && geo.data?.city) {
-            setSelectedCity(geo.data.city);
+            setOverrideCity(null);
+            selectCity({
+              state: geo.data.state || activeState,
+              city: geo.data.city,
+              lat: pos.coords.latitude,
+              lon: pos.coords.longitude
+            });
             setShowDropdown(false);
           }
         } finally {
@@ -64,7 +77,7 @@ function WeatherWidget({ initialCity, defaultCity = "Delhi" }) {
   return (
     <div className="weather-widget-container">
       <div className="weather-widget-pill" onClick={() => setShowDropdown(!showDropdown)}>
-        <span className="live-api-tag">LIVE API</span>
+        <span className="live-api-tag">LIVE WEATHER</span>
         <span className="weather-icon">{weather?.icon || "🌤️"}</span>
 
         <button type="button" className="weather-city-btn">
@@ -88,7 +101,7 @@ function WeatherWidget({ initialCity, defaultCity = "Delhi" }) {
               e.stopPropagation();
               setShowDetails(!showDetails);
             }}
-            title="Click to inspect live Air Quality & Weather Telemetry"
+            title="View Air Quality & Wind Telemetry"
           >
             <Activity size={11} /> AQI {weather.aqi.usAqi} ({weather.aqi.label})
           </span>
@@ -110,25 +123,25 @@ function WeatherWidget({ initialCity, defaultCity = "Delhi" }) {
       {showDropdown && (
         <div className="weather-city-dropdown">
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <span className="dropdown-title" style={{ marginBottom: 0 }}>Live Weather &amp; AQI City:</span>
+            <span className="dropdown-title" style={{ marginBottom: 0 }}>Check City Weather &amp; AQI:</span>
             <button
               type="button"
               className="weather-gps-btn"
               onClick={handleDetectCity}
-              title="Detect my current city via GPS"
+              title="Detect current city via GPS"
             >
-              <Crosshair size={11} /> My City
+              <Crosshair size={11} /> GPS City
             </button>
           </div>
           <div className="weather-city-options">
-            {WEATHER_CITIES.map((c) => (
+            {QUICK_WEATHER_CITIES.map((c) => (
               <button
                 key={c}
                 type="button"
                 className={`weather-opt-btn ${selectedCity === c ? "active-opt" : ""}`}
                 onClick={() => {
                   setLoading(true);
-                  setSelectedCity(c);
+                  setOverrideCity(c);
                   setShowDropdown(false);
                 }}
               >
@@ -159,7 +172,6 @@ function WeatherWidget({ initialCity, defaultCity = "Delhi" }) {
               <strong>{weather.aqi?.pm10 ?? "—"} µg/m³</strong>
             </div>
           </div>
-          <span className="weather-exp-source">{weather.source}</span>
         </div>
       )}
 

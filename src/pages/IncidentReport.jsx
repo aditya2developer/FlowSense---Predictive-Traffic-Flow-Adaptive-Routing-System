@@ -7,7 +7,9 @@ import {
   fetchNearbyServices
 } from "../api";
 import { compressImageFile } from "../utils/imageHelper";
+import { INDIA_STATES_AND_UTS, getCitiesForState } from "../utils/indiaLocations";
 import { useAuth } from "../context/AuthContext";
+import { useCity } from "../context/CityContext";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -29,27 +31,6 @@ import {
   Fuel
 } from "lucide-react";
 
-// All major cities & districts across all 28 States + 8 UTs of India
-const CITIES = [
-  "Delhi NCR", "Chandigarh", "Jalandhar / Punjab", "Amritsar", "Ludhiana", "Patiala",
-  "Gurugram (Gurgaon)", "Faridabad", "Agra", "Lucknow", "Kanpur", "Varanasi",
-  "Prayagraj (Allahabad)", "Noida / Greater Noida", "Meerut", "Dehradun", "Haridwar",
-  "Shimla", "Manali", "Jammu", "Srinagar", "Leh / Ladakh", "Jaipur", "Jodhpur",
-  "Udaipur", "Ajmer", "Kota", "Bikaner", "Mumbai", "Pune", "Nashik", "Aurangabad",
-  "Nagpur", "Thane", "Navi Mumbai", "Kolhapur", "Solapur", "Ahmedabad", "Surat",
-  "Vadodara", "Rajkot", "Bhavnagar", "Gandhinagar", "Bhopal", "Indore", "Jabalpur",
-  "Gwalior", "Ujjain", "Panaji / Goa", "Bengaluru", "Mysuru", "Mangaluru",
-  "Hubli-Dharwad", "Belagavi (Belgaum)", "Chennai", "Coimbatore", "Madurai", "Salem",
-  "Tiruchirappalli", "Tiruppur", "Vellore", "Tirunelveli", "Hyderabad", "Secunderabad",
-  "Warangal", "Vijayawada", "Visakhapatnam", "Guntur", "Tirupati", "Thiruvananthapuram",
-  "Kochi / Ernakulam", "Kozhikode (Calicut)", "Thrissur", "Kolkata", "Howrah",
-  "Durgapur", "Siliguri", "Asansol", "Bhubaneswar", "Cuttack", "Rourkela", "Puri",
-  "Patna", "Gaya", "Muzaffarpur", "Ranchi", "Jamshedpur", "Dhanbad", "Raipur",
-  "Bhilai", "Bilaspur", "Guwahati", "Silchar", "Dibrugarh", "Shillong", "Imphal",
-  "Agartala", "Aizawl", "Itanagar", "Kohima", "Gangtok", "Puducherry",
-  "Port Blair (Andaman)", "Daman", "Silvassa", "Other City / Town"
-];
-
 const HAZARD_TYPES = [
   { id: "ACCIDENT", label: "Accident / Collision", icon: "💥", severityDefault: "HIGH" },
   { id: "FLOOD", label: "Waterlogging / Flooding", icon: "🌊", severityDefault: "HIGH" },
@@ -63,57 +44,49 @@ const HAZARD_TYPES = [
   { id: "OTHER", label: "Other Hazard", icon: "⚠️", severityDefault: "MEDIUM" }
 ];
 
-const PRESET_ROADS_BY_CITY = {
-  "Delhi NCR": ["NH-48 Delhi-Gurgaon Expressway", "Ring Road & Barapullah Elevated Corridor", "DND Flyway & Mayur Vihar Link", "Outer Ring Road / Munirka Flyover", "Connaught Place Inner/Outer Circle"],
-  "Mumbai": ["Bandra-Worli Sea Link & Western Arterial", "Western Express Highway (Andheri to Airport)", "Eastern Freeway (Chembur to South Bombay)", "BKC Central Connector Road", "Marine Drive (Netaji Subhash Chandra Bose Rd)"],
-  "Bengaluru": ["Outer Ring Road (Koramangala to Whitefield)", "Hosur Road Elevated Expressway (Silk Board)", "Bellandur EcoSpace Service Corridor", "Old Airport Road & Marathahalli Bridge", "MG Road & Trinity Junction"],
-  "Chandigarh": ["Airport Road PR-7 & Zirakpur Highway", "Himalayan Expressway Corridor", "Sector 17 to Sector 35 Arterial", "Tribune Chowk Arterial Roundabout", "Madhya Marg & PGI Corridor"],
-  "Jalandhar / Punjab": ["GT Road / NH-44 Highway Corridor", "Nakodar Road Arterial", "Phagwara - Jalandhar Cantt Link Road", "Jalandhar - Amritsar Highway (NH-3)", "Model Town - Bus Stand Arterial"],
-  "Hyderabad": ["Outer Ring Road (ORR) PVNR Expressway", "HITEC City - Gachibowli Corridor", "Nehru Outer Ring Road NH-65 Interchange", "Kukatpally - Miyapur MMTS Underpass", "Uppal - LB Nagar Stretch"],
-  "Chennai": ["Anna Salai (Mount Road) Central Corridor", "OMR (IT Corridor) - Sholinganallur to Siruseri", "GST Road NH-45 Airport Junction", "Poonamallee High Road", "Inner Ring Road (Koyambedu to Ambattur)"],
-  "Kolkata": ["EM Bypass & Science City Flyover", "VIP Road (Airport to Salt Lake)", "Ultadanga Flyover & New Town Rajarhat", "Second Hooghly Bridge (Vidyasagar Setu)", "Park Street & Esplanade Central"],
-  "Pune": ["Mumbai-Pune Expressway (NH-48)", "Hinjewadi IT Park - Wakad Ring Road", "Sinhagad Road & Warje Flyover", "Katraj - Kondhwa Bypass", "Nagar Road & Wagholi Corridor"],
-  "Ahmedabad": ["GIFT City - SG Highway Expressway", "Sardar Patel Ring Road (NH-147)", "CG Road & Navrangpura Underpass", "Ashram Road & Gandhi Bridge Corridor", "Sarkhej - Gandhinagar Highway"],
-  "Jaipur": ["Jaipur-Delhi NH-48 Flyover Zone", "Ajmer Road (NH-48) & Durgapura Stretch", "Tonk Road Flyover Underpass", "Sirsi Road & Kalwar Road Chowk", "JLN Marg Arterial Corridor"],
-  "Lucknow": ["Shaheed Path Ring Road (NH-28)", "Amar Shaheed Path Expressway", "Faizabad Road & Gomti Nagar Link", "Vikas Nagar - Chinhat Corridor", "Kanpur Road NH-27 Stretch"],
-  "Bhopal": ["Hoshangabad Road & BHEL Flyover", "New Market - MP Nagar Corridor", "Raisen Road NH-146", "Berasia Road Bypass", "Karond - Bairagarh Arterial"],
-  "Indore": ["Ring Road & Palasia Square", "Super Corridor (IT Park) Stretch", "AB Road (Agra-Bombay NH-3)", "Rau - Pithampur Industrial Road", "Bhawarkua - LIG Colony Link"],
-  "Visakhapatnam": ["Beach Road (NH-16) Coastal Corridor", "Steel Plant Road Arterial", "MVP Colony to NAD Junction", "Gajuwaka Industrial Area Flyover", "NH-16 Bheemunipatnam Stretch"],
-  "Kochi / Ernakulam": ["NH-66 Kochi Bypass", "Seaport-Airport Road Corridor", "MG Road & Ernakulam Junction", "Vytila - Thripunithura Link", "Edapally Junction Flyover"],
-  "Guwahati": ["NH-27 (Guwahati Bypass) Corridor", "RG Baruah Road & Dispur Link", "Jalukbari - Adabari Underpass", "Six Mile - Khanapara Stretch", "Lokhra Road Arterial"]
-};
-
 function getLiveRecommendationPreview(type) {
   switch (type) {
-    case "ACCIDENT": return { driver: "🚨 Diversion Advised: Approach with caution at under 30 km/h. Keep right shoulder open for emergency ambulance.", police: "🚔 Dispatch Highway Interceptor & Trauma EMS. Establish 300m warning cone perimeter." };
-    case "FLOOD": return { driver: "🌊 Underpass Flooding: Low sedans & bikes avoid waterlogged stretches. Do not restart stalled engine in water.", police: "🚔 Deploy high-capacity municipal pumps. Erect reflective warning barricades at submerged dip." };
-    case "ROADBLOCK": return { driver: "🛑 Street Closed: Impassable. Follow FlowSense alternate green route or use public transit / Metro.", police: "🚔 Station traffic constable at preceding intersection. Push digital detour signs." };
-    case "POTHOLE": return { driver: "🕳️ Crater Warning: Two-wheelers maintain steady handle grip. Avoid sudden lane swerving at high speeds.", police: "🚔 Mark crater with reflective safety paint. Issue urgent repair ticket to PWD / NHAI." };
-    case "FIRE_HAZARD": return { driver: "🔥 Fire Threat: Roll up vehicle windows and switch AC to recirculate. Clear all lanes for approaching fire tenders.", police: "🚔 Cordon off 200m zone. Halt incoming traffic and guide fire engines through oncoming lane." };
-    case "TRAFFIC_JAM": return { driver: "⏱️ Severe Gridlock: Delay departure by 30 mins or divert via secondary ring road.", police: "🚔 Clear illegal curb parking at choke point. Extend green signal timing by 25 seconds." };
-    case "CONSTRUCTION": return { driver: "🚧 Construction Zone: Reduce speed to 40 km/h. Watch for road workers and unmarked diversions.", police: "🚔 Verify site barricading compliance. Issue notice to contractor for reflective cone placement." };
-    case "DEBRIS": return { driver: "⚠️ Road Debris: Slow to 30 km/h. Use hazard lights. Do not swerve suddenly at highway speeds.", police: "🚔 Send patrol bike for immediate debris clearance. Close lane until safe." };
-    case "STALLED_VEHICLE": return { driver: "🚙 Stalled Vehicle Ahead: Use side mirror before lane change. Keep 2 lanes clear for tow truck.", police: "🚔 Dispatch NHAI towing assistance. Place emergency triangles 100m behind vehicle." };
-    default: return { driver: "⚠️ Drive with heightened alertness. Reduce speed and leave 3-car stopping distance.", police: "🚔 Patrol bike assigned to verify hazard location and clear debris." };
+    case "ACCIDENT": return { driver: "Approach with caution under 30 km/h. Keep the right lane clear for emergency ambulance.", police: "Dispatch nearest patrol and medical unit. Establish a 300m warning perimeter." };
+    case "FLOOD": return { driver: "Avoid submerged dips and underpasses. Do not restart stalled engines in deep water.", police: "Deploy drainage pumps and install reflective flood warning barriers." };
+    case "ROADBLOCK": return { driver: "Road blocked ahead. Follow suggested detour corridor.", police: "Deploy traffic officers at preceding junctions and issue detour advisory." };
+    case "POTHOLE": return { driver: "Two-wheelers maintain steady grip and avoid abrupt lane changes.", police: "Mark hazard with warning cones and notify municipal road maintenance." };
+    case "FIRE_HAZARD": return { driver: "Roll up windows and yield all lanes immediately for fire tenders.", police: "Secure a 200m safety perimeter and guide fire brigade units." };
+    case "TRAFFIC_JAM": return { driver: "Expect delays. Consider taking an alternate route or delaying departure.", police: "Clear curb bottlenecks and adjust intersection green-signal cycles." };
+    case "CONSTRUCTION": return { driver: "Reduce speed to 40 km/h and watch for workers and lane shifts.", police: "Verify reflective barricading compliance on the active corridor." };
+    case "DEBRIS": return { driver: "Slow down to 30 km/h, enable hazard blinkers, and keep safe clearance.", police: "Dispatch quick-response patrol to remove road obstruction." };
+    case "STALLED_VEHICLE": return { driver: "Merge safely leaving clear access for towing recovery.", police: "Dispatch highway patrol recovery crane and place warning triangles." };
+    default: return { driver: "Drive cautiously and maintain safe stopping distance.", police: "Assign patrol unit to inspect location and restore flow." };
   }
 }
 
 function IncidentReport() {
   const { user } = useAuth();
+  const { activeState, activeCity, cityMeta } = useCity();
 
-  const [selectedCity, setSelectedCity] = useState("Delhi NCR");
+  const [selectedState, setSelectedState] = useState(() => activeState || "Delhi (NCT)");
+  const [selectedCity, setSelectedCity] = useState(() => activeCity || "Delhi NCR");
   const [customCity, setCustomCity] = useState("");
+  const [prevGlobalCity, setPrevGlobalCity] = useState(`${activeState}:${activeCity}`);
+
+  if (`${activeState}:${activeCity}` !== prevGlobalCity) {
+    setPrevGlobalCity(`${activeState}:${activeCity}`);
+    setSelectedState(activeState);
+    setSelectedCity(activeCity);
+  }
+
+  const availableCities = getCitiesForState(selectedState);
+  const presetRoads = cityMeta?.corridors || [];
+
   const [selectedType, setSelectedType] = useState("ACCIDENT");
   const [severity, setSeverity] = useState("HIGH");
-  const [roadName, setRoadName] = useState("NH-48 Delhi-Gurgaon Expressway");
+  const [roadName, setRoadName] = useState(() => presetRoads[0] || "");
   const [customRoad, setCustomRoad] = useState("");
-  const [useCustomRoad, setUseCustomRoad] = useState(false);
+  const [useCustomRoad, setUseCustomRoad] = useState(() => presetRoads.length === 0);
   const [landmark, setLandmark] = useState("");
   const [description, setDescription] = useState("");
-  const [reportedBy, setReportedBy] = useState(user?.name || "");
-  const [contactPhone, setContactPhone] = useState(user?.phone || "");
+  const [reportedBy, setReportedBy] = useState(() => user?.name || "");
+  const [contactPhone, setContactPhone] = useState(() => user?.phone || "");
 
-  // Real-time GPS & Photos state
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [gpsStatus, setGpsStatus] = useState("");
@@ -122,7 +95,6 @@ function IncidentReport() {
   const [images, setImages] = useState([]);
   const [uploadingImg, setUploadingImg] = useState(false);
 
-  // Live Community Incidents Feed
   const [liveIncidents, setLiveIncidents] = useState([]);
   const [upvotingId, setUpvotingId] = useState("");
   const [lightboxImage, setLightboxImage] = useState("");
@@ -131,24 +103,13 @@ function IncidentReport() {
   const [successData, setSuccessData] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const activeCity = selectedCity === "Other City / Town" ? (customCity || "Custom City") : selectedCity;
-  const activeRoad = useCustomRoad ? (customRoad || "Custom Road Corridor") : roadName;
+  const finalCity = selectedCity === "Other" ? customCity.trim() || "Custom City" : selectedCity;
+  const activeRoad = useCustomRoad ? customRoad.trim() || "Road Corridor" : roadName || `${finalCity} Main Road`;
   const liveRec = getLiveRecommendationPreview(selectedType);
-
-  async function loadCommunityIncidents() {
-    try {
-      const res = await fetchIncidents();
-      if (res.success && Array.isArray(res.data)) {
-        setLiveIncidents(res.data.slice(0, 8));
-      }
-    } catch {
-      // Quiet fallback
-    }
-  }
 
   useEffect(() => {
     let active = true;
-    fetchIncidents()
+    fetchIncidents(finalCity)
       .then((res) => {
         if (active && res.success && Array.isArray(res.data)) {
           setLiveIncidents(res.data.slice(0, 8));
@@ -158,14 +119,29 @@ function IncidentReport() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [finalCity]);
 
-  function handleCityChange(city) {
-    setSelectedCity(city);
+  function handleStateChange(nextState) {
+    setSelectedState(nextState);
+    const list = getCitiesForState(nextState);
+    const firstCity = list[0];
+    setSelectedCity(firstCity ? firstCity.name : "Other");
     setCustomCity("");
-    const presets = PRESET_ROADS_BY_CITY[city];
-    if (presets && presets.length > 0) {
-      setRoadName(presets[0]);
+    if (firstCity?.corridors?.length) {
+      setRoadName(firstCity.corridors[0]);
+      setUseCustomRoad(false);
+    } else {
+      setUseCustomRoad(true);
+      setCustomRoad("");
+    }
+  }
+
+  function handleCityChange(nextCity) {
+    setSelectedCity(nextCity);
+    setCustomCity("");
+    const match = availableCities.find((c) => c.name === nextCity);
+    if (match?.corridors?.length) {
+      setRoadName(match.corridors[0]);
       setUseCustomRoad(false);
     } else {
       setUseCustomRoad(true);
@@ -186,7 +162,7 @@ function IncidentReport() {
     }
 
     setLocatingGps(true);
-    setGpsStatus("Acquiring satellite GPS coordinates & reverse geocoding...");
+    setGpsStatus("Detecting GPS coordinates and street address...");
     setErrorMsg("");
 
     navigator.geolocation.getCurrentPosition(
@@ -204,17 +180,6 @@ function IncidentReport() {
 
           if (geoRes.success && geoRes.data) {
             const addr = geoRes.data;
-            const matchedCity = CITIES.find((c) =>
-              c.toLowerCase().includes((addr.city || "").toLowerCase()) ||
-              (addr.city || "").toLowerCase().includes(c.split(" ")[0].toLowerCase())
-            );
-            if (matchedCity) {
-              setSelectedCity(matchedCity);
-            } else if (addr.city) {
-              setSelectedCity("Other City / Town");
-              setCustomCity(addr.city);
-            }
-
             if (addr.street) {
               setUseCustomRoad(true);
               setCustomRoad(addr.street);
@@ -222,16 +187,16 @@ function IncidentReport() {
             if (addr.displayName) {
               setLandmark(addr.displayName.split(",").slice(0, 2).join(", "));
             }
-            setGpsStatus(`GPS Locked (${lat}, ${lon}) via ${addr.source}`);
+            setGpsStatus(`Location locked (${lat}, ${lon})`);
           } else {
-            setGpsStatus(`GPS Locked at ${lat}°N, ${lon}°E`);
+            setGpsStatus(`Location locked (${lat}, ${lon})`);
           }
 
           if (poiRes.success && poiRes.data?.services) {
             setNearbyServices(poiRes.data.services.slice(0, 6));
           }
         } catch {
-          setGpsStatus(`GPS Coordinates Captured: ${lat}, ${lon}`);
+          setGpsStatus(`GPS captured (${lat}, ${lon})`);
         } finally {
           setLocatingGps(false);
         }
@@ -239,7 +204,7 @@ function IncidentReport() {
       (err) => {
         setLocatingGps(false);
         setGpsStatus("");
-        setErrorMsg(`GPS detection declined or unavailable (${err.message}). You can select city manually or enter coordinates.`);
+        setErrorMsg(`GPS detection unavailable (${err.message}). You can enter your location manually.`);
       },
       { enableHighAccuracy: true, timeout: 8000 }
     );
@@ -251,7 +216,7 @@ function IncidentReport() {
 
     const remainingSlots = 3 - images.length;
     if (remainingSlots <= 0) {
-      setErrorMsg("Maximum 3 evidence photos allowed per incident report.");
+      setErrorMsg("Maximum 3 photos allowed per incident report.");
       e.target.value = "";
       return;
     }
@@ -292,8 +257,8 @@ function IncidentReport() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!activeCity.trim() || !activeRoad.trim()) {
-      setErrorMsg("Please specify both city and road/location.");
+    if (!finalCity.trim() || !activeRoad.trim()) {
+      setErrorMsg("Please specify both city and road location.");
       return;
     }
     setSubmitting(true);
@@ -308,14 +273,14 @@ function IncidentReport() {
     try {
       const payload = {
         roadId: generatedRoadId,
-        roadName: activeRoad.trim(),
-        city: activeCity.trim(),
+        roadName: activeRoad,
+        city: finalCity,
         type: selectedType,
         severity,
         landmark: landmark.trim(),
         description:
           description.trim() ||
-          `Citizen reported ${selectedType.toLowerCase().replace(/_/g, " ")} hazard on ${activeRoad}`,
+          `Reported ${selectedType.toLowerCase().replace(/_/g, " ")} hazard on ${activeRoad}`,
         reportedBy: reportedBy.trim() || user?.name || "Concerned Citizen",
         reporterEmail: user?.email || "",
         contactPhone: contactPhone.trim(),
@@ -327,15 +292,17 @@ function IncidentReport() {
       const res = await reportIncident(payload);
       if (res.success) {
         setSuccessData(res);
-        loadCommunityIncidents();
+        fetchIncidents(finalCity).then((r) => {
+          if (r.success && Array.isArray(r.data)) setLiveIncidents(r.data.slice(0, 8));
+        });
         window.dispatchEvent(
           new CustomEvent("flowsense-hazard-reported", {
             detail: {
               id: res.data?._id || generatedRoadId,
               type: selectedType,
-              title: `🚨 NEW HAZARD REPORTED: ${selectedType.replace(/_/g, " ")}`,
+              title: `NEW HAZARD REPORTED: ${selectedType.replace(/_/g, " ")}`,
               roadName: activeRoad,
-              city: activeCity,
+              city: finalCity,
               location: payload.location,
               severity,
               description: payload.description,
@@ -351,16 +318,14 @@ function IncidentReport() {
           setImages([]);
         }, 800);
       } else {
-        setErrorMsg(res.message || "Failed to submit hazard report. Please try again.");
+        setErrorMsg(res.message || "Failed to submit hazard report.");
       }
     } catch {
-      setErrorMsg("Could not connect to FlowSense backend.");
+      setErrorMsg("Unable to submit hazard report right now. Please try again.");
     } finally {
       setSubmitting(false);
     }
   }
-
-  const presetRoads = PRESET_ROADS_BY_CITY[selectedCity] || [];
 
   return (
     <div className="page-container incident-report-page">
@@ -368,36 +333,34 @@ function IncidentReport() {
       <section className="incident-hero-section">
         <div className="incident-hero-content">
           <div className="incident-hero-badge">
-            <AlertTriangle size={14} /> Pan-India Citizen Hazard &amp; Photo Reporting
+            <AlertTriangle size={14} /> Live Road Hazard Reporting — {finalCity}
           </div>
           <h1>Report a Road Hazard with Live GPS &amp; Photos</h1>
           <p>
-            Capture live GPS coordinates, upload incident photos, and instantly alert Traffic Police
-            with an audible emergency siren while degrading unstable corridor scores in MongoDB Atlas.
+            Capture your exact location, upload photos of road incidents or blocks, and alert local
+            commuters and traffic authorities immediately.
           </p>
           <div className="emergency-quick-dial-row">
             <a href="tel:112" className="quick-dial-chip chip-red"><Phone size={14} /> 112 — National Emergency</a>
-            <a href="tel:1033" className="quick-dial-chip chip-blue"><Phone size={14} /> 1033 — NHAI Highway Help</a>
+            <a href="tel:1033" className="quick-dial-chip chip-blue"><Phone size={14} /> 1033 — Highway Help</a>
             <a href="tel:108" className="quick-dial-chip chip-green"><Phone size={14} /> 108 — Ambulance</a>
           </div>
         </div>
       </section>
 
-      {/* SUCCESS STATE */}
       {successData && (
         <section className="report-success-banner-full">
           <div className="success-full-inner">
             <CheckCircle2 size={40} className="success-big-icon" />
             <div>
-              <h2>Hazard Report &amp; Evidence Saved to MongoDB!</h2>
+              <h2>Hazard Report Submitted!</h2>
               <p>
-                Incident ID: <code>{successData.data?._id}</code><br />
-                Your report for <strong>{activeRoad}</strong> in <strong>{activeCity}</strong> has
-                been persisted in MongoDB Atlas. Traffic Police command received an alert.
+                Your report for <strong>{activeRoad}</strong> in <strong>{finalCity}</strong> is now
+                live and Traffic Authorities have been alerted.
               </p>
               {(successData.driverRecommendation || successData.data?.recommendation) && (
                 <div className="success-driver-rec-box">
-                  <strong>What Commuters Should Do:</strong>
+                  <strong>Recommended Action for Commuters:</strong>
                   <p>{successData.driverRecommendation || successData.data?.recommendation}</p>
                 </div>
               )}
@@ -420,12 +383,11 @@ function IncidentReport() {
 
       {!successData && (
         <div className="incident-report-layout">
-          {/* MAIN FORM */}
           <form onSubmit={handleSubmit} className="incident-form-card">
             <div className="form-section-header-between">
               <div className="form-section-header" style={{ margin: 0 }}>
                 <MapPin size={18} className="text-cyan" />
-                <h3>Step 1 — Real-Time Location &amp; GPS</h3>
+                <h3>Step 1 — State, City &amp; GPS Location</h3>
               </div>
               <button
                 type="button"
@@ -434,7 +396,7 @@ function IncidentReport() {
                 disabled={locatingGps}
               >
                 <Crosshair size={14} className={locatingGps ? "spin-icon" : ""} />
-                <span>{locatingGps ? "Locating GPS..." : "Detect My Exact GPS"}</span>
+                <span>{locatingGps ? "Detecting GPS..." : "Detect My GPS"}</span>
               </button>
             </div>
 
@@ -445,26 +407,47 @@ function IncidentReport() {
               </div>
             )}
 
-            <div className="report-field-group">
-              <label>City / District *</label>
-              <select
-                value={selectedCity}
-                onChange={(e) => handleCityChange(e.target.value)}
-                className="report-select"
-                required
-              >
-                {CITIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+            <div className="report-row-split">
+              <div className="report-field-group">
+                <label>State / Union Territory *</label>
+                <select
+                  value={selectedState}
+                  onChange={(e) => handleStateChange(e.target.value)}
+                  className="report-select"
+                  required
+                >
+                  {INDIA_STATES_AND_UTS.map((s) => (
+                    <option key={s.state} value={s.state}>
+                      {s.state}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="report-field-group">
+                <label>City / District *</label>
+                <select
+                  value={selectedCity}
+                  onChange={(e) => handleCityChange(e.target.value)}
+                  className="report-select"
+                  required
+                >
+                  {availableCities.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                  <option value="Other">Other City / Town</option>
+                </select>
+              </div>
             </div>
 
-            {selectedCity === "Other City / Town" && (
+            {selectedCity === "Other" && (
               <div className="report-field-group">
                 <label>Enter City / Town Name *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Mysuru, Coimbatore, Bikaner..."
+                  placeholder={`Enter city or town in ${selectedState}`}
                   value={customCity}
                   onChange={(e) => setCustomCity(e.target.value)}
                   className="report-input"
@@ -474,7 +457,7 @@ function IncidentReport() {
             )}
 
             <div className="report-field-group">
-              <label>Road / Corridor *</label>
+              <label>Road / Street / Highway *</label>
               {presetRoads.length > 0 && !useCustomRoad ? (
                 <div className="road-preset-group">
                   <select
@@ -498,7 +481,7 @@ function IncidentReport() {
                 <div className="road-preset-group">
                   <input
                     type="text"
-                    placeholder="e.g. NH-44 near Ambala Flyover, Kharghar Ring Road..."
+                    placeholder={`Road or highway name in ${finalCity}`}
                     value={customRoad}
                     onChange={(e) => setCustomRoad(e.target.value)}
                     className="report-input"
@@ -513,7 +496,7 @@ function IncidentReport() {
                         setRoadName(presetRoads[0]);
                       }}
                     >
-                      ← Use preset roads
+                      ← Use suggested roads
                     </button>
                   )}
                 </div>
@@ -524,7 +507,7 @@ function IncidentReport() {
               <label>Landmark / Exact Spot</label>
               <input
                 type="text"
-                placeholder="e.g. Near Metro Gate 2, 200m before Toll Plaza..."
+                placeholder="e.g. Near Metro Gate, Toll Plaza, or Market Chowk"
                 value={landmark}
                 onChange={(e) => setLandmark(e.target.value)}
                 className="report-input"
@@ -537,7 +520,7 @@ function IncidentReport() {
                 <input
                   type="number"
                   step="any"
-                  placeholder="e.g. 28.6139"
+                  placeholder="Latitude"
                   value={latitude}
                   onChange={(e) => setLatitude(e.target.value)}
                   className="report-input"
@@ -548,7 +531,7 @@ function IncidentReport() {
                 <input
                   type="number"
                   step="any"
-                  placeholder="e.g. 77.2090"
+                  placeholder="Longitude"
                   value={longitude}
                   onChange={(e) => setLongitude(e.target.value)}
                   className="report-input"
@@ -558,7 +541,7 @@ function IncidentReport() {
 
             <div className="form-section-header" style={{ marginTop: 20 }}>
               <AlertTriangle size={18} className="text-amber" />
-              <h3>Step 2 — Hazard Type, Evidence Photos &amp; Details</h3>
+              <h3>Step 2 — Hazard Type, Photos &amp; Details</h3>
             </div>
 
             <div className="hazard-type-grid">
@@ -591,9 +574,8 @@ function IncidentReport() {
               </div>
             </div>
 
-            {/* MULTI-IMAGE EVIDENCE UPLOAD */}
             <div className="report-field-group">
-              <label>Upload Incident Photos (Up to 3 Evidence Images)</label>
+              <label>Upload Incident Photos (Up to 3 Photos)</label>
               <div className="incident-photo-upload-area">
                 <label className="incident-upload-trigger">
                   <input
@@ -607,10 +589,10 @@ function IncidentReport() {
                   <Camera size={18} className="text-cyan" />
                   <span>
                     {uploadingImg
-                      ? "Compressing photos..."
+                      ? "Processing photos..."
                       : images.length >= 3
                         ? "Maximum 3 photos attached"
-                        : `Add Incident Photos (${images.length}/3 uploaded)`}
+                        : `Attach Incident Photos (${images.length}/3 uploaded)`}
                   </span>
                 </label>
 
@@ -639,10 +621,10 @@ function IncidentReport() {
             </div>
 
             <div className="report-field-group">
-              <label>Describe the Hazard</label>
+              <label>Description</label>
               <textarea
                 rows={3}
-                placeholder="Describe what you observed in detail — lane blocked, water depth, number of vehicles involved..."
+                placeholder="Describe lanes affected, waterlogging depth, traffic backup, or detour details..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="report-textarea"
@@ -651,7 +633,7 @@ function IncidentReport() {
 
             <div className="form-section-header" style={{ marginTop: 20 }}>
               <Phone size={18} className="text-emerald" />
-              <h3>Step 3 — Reporter Info</h3>
+              <h3>Step 3 — Contact Details (Kept Confidential for Police Only)</h3>
             </div>
 
             <div className="report-row-split">
@@ -666,7 +648,7 @@ function IncidentReport() {
                 />
               </div>
               <div className="report-field-group">
-                <label>Contact Number</label>
+                <label>Phone Number (Private to Police)</label>
                 <input
                   type="tel"
                   placeholder="+91 98XXXXXXXX"
@@ -684,27 +666,20 @@ function IncidentReport() {
             )}
 
             <button type="submit" className="submit-hazard-btn" disabled={submitting}>
-              {submitting ? (
-                "Saving Report & Photos to MongoDB..."
-              ) : (
+              {submitting ? "Submitting Report..." : (
                 <>
-                  <Send size={18} /> Submit Hazard Report — Alert Traffic Police Now
+                  <Send size={18} /> Submit Hazard Report
                 </>
               )}
             </button>
-
-            <p className="report-privacy-note">
-              Your report and attached photos are persisted in MongoDB Atlas and dispatched immediately
-              to jurisdiction Traffic Police.
-            </p>
           </form>
 
-          {/* LIVE RECOMMENDATION & NEARBY EMERGENCY SIDEBAR */}
+          {/* SIDEBAR */}
           <div className="report-rec-sidebar">
             <div className="live-rec-card">
               <div className="live-rec-header">
                 <Sparkles size={16} className="text-amber" />
-                <span>AI Safety Guidance Preview</span>
+                <span>Safety Advisory Preview</span>
                 <span className="live-pulse-dot" />
               </div>
               <div className="rec-hazard-preview-label">
@@ -713,28 +688,28 @@ function IncidentReport() {
                 <span className={`rec-sev-badge sev-${severity.toLowerCase()}`}>{severity}</span>
               </div>
               <div className="rec-location-preview">
-                <MapPin size={13} /> {activeCity} —{" "}
+                <MapPin size={13} /> {finalCity} —{" "}
                 {activeRoad.length > 42 ? `${activeRoad.substring(0, 42)}...` : activeRoad}
               </div>
               <div className="rec-box driver-rec">
-                <div className="rec-title"><Car size={15} /> What Drivers Should Do:</div>
+                <div className="rec-title"><Car size={15} /> For Drivers:</div>
                 <p>{liveRec.driver}</p>
               </div>
               <div className="rec-box police-rec">
-                <div className="rec-title"><ShieldAlert size={15} /> Police Action Plan:</div>
+                <div className="rec-title"><ShieldAlert size={15} /> Traffic Police Action:</div>
                 <p>{liveRec.police}</p>
               </div>
               <div className="rec-helpline-box">
                 <Info size={14} />
                 <span>
-                  Dial <strong>112</strong> for immediate emergency or <strong>1033</strong> for NHAI highway patrol.
+                  Dial <strong>112</strong> for immediate emergency or <strong>1033</strong> on highways.
                 </span>
               </div>
             </div>
 
             {nearbyServices.length > 0 && (
               <div className="how-it-works-card">
-                <h4>Live Nearby Help (OpenStreetMap Overpass)</h4>
+                <h4>Nearby Hospitals, Police &amp; Fuel</h4>
                 {nearbyServices.map((srv) => (
                   <div key={srv.id} className="nearby-poi-row">
                     <span className={`poi-icon-tag poi-${srv.category.toLowerCase()}`}>
@@ -751,47 +726,22 @@ function IncidentReport() {
                 ))}
               </div>
             )}
-
-            <div className="how-it-works-card">
-              <h4>How Your Report Helps</h4>
-              <div className="how-step">
-                <div className="how-step-num">1</div>
-                <div>
-                  <strong>Instant MongoDB Persistence</strong>
-                  <p>Saved with GPS coordinates, compressed evidence images, and severity level.</p>
-                </div>
-              </div>
-              <div className="how-step">
-                <div className="how-step-num">2</div>
-                <div>
-                  <strong>Traffic Police Siren Alert</strong>
-                  <p>Jurisdiction officers receive a live alarm on their command dashboard.</p>
-                </div>
-              </div>
-              <div className="how-step">
-                <div className="how-step-num">3</div>
-                <div>
-                  <strong>Dynamic Route Rerouting</strong>
-                  <p>Corridor stability scores drop automatically to guide commuters around danger.</p>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}
 
-      {/* LIVE COMMUNITY HAZARDS & VERIFICATION UPVOTES */}
+      {/* CITY COMMUNITY HAZARDS FEED */}
       <section className="portal-card community-feed-section" style={{ marginTop: 32 }}>
         <div className="portal-card-header">
           <div>
-            <h2>Live Community Hazard Feed ({liveIncidents.length} Active Reports)</h2>
-            <p>Confirm active hazards on your route so commuters &amp; police know reports are verified.</p>
+            <h2>Live Road Hazards in {finalCity} ({liveIncidents.length})</h2>
+            <p>Confirm active incidents on your route to help other commuters in {finalCity}.</p>
           </div>
-          <span className="live-pulse-badge emerald">MongoDB Real-Time Feed</span>
+          <span className="live-pulse-badge emerald">{finalCity} Live Feed</span>
         </div>
 
         {liveIncidents.length === 0 ? (
-          <p style={{ color: "#94a3b8" }}>No active community hazard reports right now.</p>
+          <p style={{ color: "#94a3b8" }}>No active road hazards reported in {finalCity} right now.</p>
         ) : (
           <div className="community-hazards-grid">
             {liveIncidents.map((inc) => (
@@ -822,7 +772,7 @@ function IncidentReport() {
                       <img
                         key={idx}
                         src={imgSrc}
-                        alt="Hazard evidence"
+                        alt="Hazard photo"
                         onClick={() => setLightboxImage(imgSrc)}
                       />
                     ))}
@@ -846,7 +796,6 @@ function IncidentReport() {
         )}
       </section>
 
-      {/* IMAGE LIGHTBOX */}
       {lightboxImage && (
         <div className="emergency-modal-overlay" onClick={() => setLightboxImage("")}>
           <div className="lightbox-card" onClick={(e) => e.stopPropagation()}>

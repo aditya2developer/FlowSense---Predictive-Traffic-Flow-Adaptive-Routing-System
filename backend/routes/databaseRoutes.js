@@ -1,25 +1,51 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const { authenticate, requireRole } = require("../middleware/auth");
+
 const router = express.Router();
 
-// Mask sensitive fields in user documents for public/showcase display
-function sanitizeDocument(doc, collectionName) {
+// Internal security collections that must NEVER be browsed
+const ALWAYS_HIDDEN_COLLECTIONS = new Set(["otprecords"]);
+// Confidential PII collections restricted strictly to Global Admin
+const ADMIN_ONLY_COLLECTIONS = new Set(["users", "contactmessages"]);
+
+// Mask all confidential / PII fields before returning any document
+function sanitizeDocument(doc, collectionName, isAdmin = false) {
   if (!doc) return doc;
   const obj = typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
-  if (collectionName === "users" && obj.password) {
-    obj.password = "•••••••• [BCRYPT_HASH_PROTECTED]";
+
+  // Never expose password hashes, OTP codes, or pending private payloads
+  if (obj.password !== undefined) obj.password = "•••••••• [PROTECTED]";
+  if (obj.otp !== undefined) delete obj.otp;
+  if (obj.idProofImage) obj.idProofImage = "[VERIFICATION_DOCUMENT_PROTECTED]";
+  if (obj.avatar && obj.avatar.length > 120) obj.avatar = "[AVATAR_IMAGE_STORED]";
+
+  if (!isAdmin) {
+    // Strip all personally identifiable fields for non-admin public viewers
+    delete obj.reporterEmail;
+    delete obj.contactPhone;
+    delete obj.phone;
+    delete obj.email;
+    delete obj.emergencyContact;
+    delete obj.pendingProfileUpdates;
+    delete obj.badgeNumber;
+    delete obj.verificationNotes;
+    if (collectionName === "incidents" && obj.reportedBy) {
+      obj.reportedBy = "Verified Citizen";
+    }
   }
+
   return obj;
 }
 
-// Inferred field types from document samples
+// Inferred field types from sanitized document samples
 function inferSchema(docs) {
   if (!docs || docs.length === 0) return [];
   const fieldsMap = {};
   docs.forEach((doc) => {
     Object.keys(doc).forEach((key) => {
       if (!fieldsMap[key]) {
-        let val = doc[key];
+        const val = doc[key];
         let type = typeof val;
         if (val === null) type = "null";
         else if (Array.isArray(val)) type = `Array[${val.length > 0 ? typeof val[0] : "any"}]`;
@@ -33,36 +59,25 @@ function inferSchema(docs) {
   return Object.entries(fieldsMap).map(([field, type]) => ({ field, type }));
 }
 
-// Resilient DB accessor with auto-reconnect
 async function getDb() {
   if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
     return mongoose.connection.db;
   }
-  if (mongoose.connection.readyState !== 1) {
-    try {
-      const connectDB = require("../config/db");
-      await connectDB();
-    } catch (e) {
-      console.warn("Auto-connect DB attempt failed:", e.message);
-    }
-  }
-  if (mongoose.connection.db) {
-    return mongoose.connection.db;
-  }
-  if (mongoose.connection.getClient) {
-    try {
-      const client = mongoose.connection.getClient();
-      if (client) return client.db();
-    } catch (e) {}
-  }
   return null;
+}
+
+function isCollectionRestricted(name, isAdmin) {
+  const clean = String(name || "").toLowerCase().trim();
+  if (ALWAYS_HIDDEN_COLLECTIONS.has(clean)) return true;
+  if (!isAdmin && ADMIN_ONLY_COLLECTIONS.has(clean)) return true;
+  return false;
 }
 
 /**
  * GET /api/database/diagnostic
- * Health & connection diagnostic for debugging Atlas connectivity.
+ * Strictly restricted to Root Administrator
  */
-router.get("/diagnostic", (req, res) => {
+router.get("/diagnostic", authenticate, requireRole("ADMIN"), (req, res) => {
   return res.json({
     success: true,
     readyState: mongoose.connection.readyState,
@@ -70,24 +85,22 @@ router.get("/diagnostic", (req, res) => {
     hasDb: !!mongoose.connection.db,
     dbName: mongoose.connection.db?.databaseName || null,
     isMongoConnected: global.isMongoConnected || false,
-    lastConnectionError: global.mongoConnectionError || null,
-    envUriConfigured: !!process.env.MONGO_URI,
-    activeHost: mongoose.connection.host || null,
     timestamp: new Date().toISOString()
   });
 });
 
 /**
  * GET /api/database/overview
- * Real-time metadata for all collections, document counts, and Atlas cluster stats.
+ * Real-time metadata for public traffic collections (and full collections for Admin)
  */
-router.get("/overview", async (req, res) => {
+router.get("/overview", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
+    const isAdmin = req.user?.role === "ADMIN";
     const db = await getDb();
     if (!db) {
       return res.status(503).json({
         success: false,
-        message: "Database connection not initialized: " + (global.mongoConnectionError || "Disconnected")
+        message: "Live database cluster is currently in standby mode."
       });
     }
 
@@ -98,12 +111,11 @@ router.get("/overview", async (req, res) => {
     let dbStats = { storageSize: 0, objects: 0, indexes: 0 };
     try {
       dbStats = await db.stats();
-    } catch (e) {
-      // Free/shared tier may restrict dbStats command in some environments
+    } catch {
+      // Restricted on some tiers
     }
 
     const rawCollections = await db.listCollections().toArray();
-    // Sort collections alphabetically or logically
     const collectionOrder = ["roadsegments", "trafficrecords", "incidents", "weathers", "advisories", "users", "contactmessages"];
     rawCollections.sort((a, b) => {
       const idxA = collectionOrder.indexOf(a.name);
@@ -118,7 +130,7 @@ router.get("/overview", async (req, res) => {
     let totalDocs = 0;
 
     for (const c of rawCollections) {
-      if (c.name.startsWith("system.")) continue;
+      if (c.name.startsWith("system.") || isCollectionRestricted(c.name, isAdmin)) continue;
 
       const colInstance = db.collection(c.name);
       const count = await colInstance.countDocuments();
@@ -127,13 +139,13 @@ router.get("/overview", async (req, res) => {
       let colIndexes = [];
       try {
         colIndexes = await colInstance.indexes();
-      } catch (err) {
+      } catch {
         colIndexes = [{ name: "_id_" }];
       }
 
-      // Sample a document to get schema
-      const sample = await colInstance.findOne({});
-      const schema = sample ? inferSchema([sample]) : [];
+      const rawSample = await colInstance.findOne({});
+      const safeSample = rawSample ? sanitizeDocument(rawSample, c.name, isAdmin) : null;
+      const schema = safeSample ? inferSchema([safeSample]) : [];
 
       collectionsInfo.push({
         name: c.name,
@@ -142,24 +154,19 @@ router.get("/overview", async (req, res) => {
         indexCount: colIndexes.length,
         indexes: colIndexes.map((idx) => idx.name),
         schemaSummary: schema.map((s) => s.field).slice(0, 8),
-        sampleId: sample ? sample._id : null
+        sampleId: safeSample ? safeSample._id : null
       });
     }
-
-    const host = mongoose.connection.host || "cluster0.pbc06oq.mongodb.net";
-    const dbName = mongoose.connection.name || "flowsense";
 
     return res.json({
       success: true,
       cluster: {
-        host,
-        dbName,
+        host: isAdmin ? mongoose.connection.host || "Atlas Cloud" : "Encrypted Smart City Cloud",
+        dbName: mongoose.connection.name || "flowsense",
         connectionState: mongoose.STATES[mongoose.connection.readyState],
         pingLatencyMs: pingMs,
-        provider: "MongoDB Atlas Cloud",
-        region: "AWS Mumbai (ap-south-1)",
-        tier: "Atlas M0 Shared Cluster",
-        driverVersion: mongoose.version
+        provider: "Cloud Document Store",
+        region: "Asia South (India)"
       },
       stats: {
         totalCollections: collectionsInfo.length,
@@ -169,39 +176,48 @@ router.get("/overview", async (req, res) => {
         dataSizeKB: dbStats.dataSize ? Math.round(dbStats.dataSize / 1024) : 0
       },
       collections: collectionsInfo,
+      isAdminView: isAdmin,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error("Database overview error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch database overview: " + error.message
+      message: "Failed to load database overview."
     });
   }
 });
 
 /**
  * GET /api/database/collection/:collectionName
- * Paginated documents list with search, sort, and schema breakdown.
+ * Confidential collections protected; PII stripped for non-admin users.
  */
-router.get("/collection/:collectionName", async (req, res) => {
+router.get("/collection/:collectionName", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
+    const isAdmin = req.user?.role === "ADMIN";
     const { collectionName } = req.params;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+
+    if (isCollectionRestricted(collectionName, isAdmin)) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Confidential collection requires Administrator clearance."
+      });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const search = (req.query.search || "").trim();
     const sortBy = req.query.sortBy || "_id";
     const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
 
     const db = await getDb();
     if (!db) {
-      return res.status(503).json({ success: false, message: "Database not connected" });
+      return res.status(503).json({ success: false, message: "Database unavailable" });
     }
 
     const colInstance = db.collection(collectionName);
     const totalCount = await colInstance.countDocuments();
 
-    // Build filter query
     let filter = {};
     if (search) {
       const searchRegex = new RegExp(search, "i");
@@ -212,22 +228,19 @@ router.get("/collection/:collectionName", async (req, res) => {
           { city: searchRegex },
           { roadType: searchRegex },
           { name: searchRegex },
-          { email: searchRegex },
           { role: searchRegex },
           { status: searchRegex },
           { type: searchRegex },
           { title: searchRegex },
           { description: searchRegex },
           { location: searchRegex },
-          { severity: searchRegex },
-          { subject: searchRegex }
+          { severity: searchRegex }
         ]
       };
     }
 
     const filteredCount = search ? await colInstance.countDocuments(filter) : totalCount;
 
-    // Fetch documents
     const rawDocs = await colInstance
       .find(filter)
       .sort({ [sortBy]: sortOrder })
@@ -235,7 +248,7 @@ router.get("/collection/:collectionName", async (req, res) => {
       .limit(limit)
       .toArray();
 
-    const sanitizedDocs = rawDocs.map((doc) => sanitizeDocument(doc, collectionName));
+    const sanitizedDocs = rawDocs.map((doc) => sanitizeDocument(doc, collectionName, isAdmin));
     const schema = inferSchema(sanitizedDocs);
 
     return res.json({
@@ -253,24 +266,32 @@ router.get("/collection/:collectionName", async (req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error(`Collection ${req.params.collectionName} error:`, error);
+    console.error(`Collection query error:`, error);
     return res.status(500).json({
       success: false,
-      message: `Failed to query collection ${req.params.collectionName}: ${error.message}`
+      message: "Failed to query collection."
     });
   }
 });
 
 /**
  * GET /api/database/document/:collectionName/:id
- * Fetch a single document by ObjectId or field ID
  */
-router.get("/document/:collectionName/:id", async (req, res) => {
+router.get("/document/:collectionName/:id", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
+    const isAdmin = req.user?.role === "ADMIN";
     const { collectionName, id } = req.params;
+
+    if (isCollectionRestricted(collectionName, isAdmin)) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Confidential collection requires Administrator clearance."
+      });
+    }
+
     const db = await getDb();
     if (!db) {
-      return res.status(503).json({ success: false, message: "Database not connected" });
+      return res.status(503).json({ success: false, message: "Database unavailable" });
     }
     const colInstance = db.collection(collectionName);
 
@@ -280,7 +301,7 @@ router.get("/document/:collectionName/:id", async (req, res) => {
     }
     if (!doc) {
       doc = await colInstance.findOne({
-        $or: [{ roadId: id }, { email: id }, { incidentId: id }, { id: id }]
+        $or: [{ roadId: id }, { incidentId: id }, { id }]
       });
     }
 
@@ -291,34 +312,42 @@ router.get("/document/:collectionName/:id", async (req, res) => {
     return res.json({
       success: true,
       collectionName,
-      document: sanitizeDocument(doc, collectionName)
+      document: sanitizeDocument(doc, collectionName, isAdmin)
     });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+  } catch {
+    return res.status(500).json({ success: false, message: "Failed to inspect document." });
   }
 });
 
 /**
  * GET /api/database/export/:collectionName
- * Full collection export formatted for JSON download
  */
-router.get("/export/:collectionName", async (req, res) => {
+router.get("/export/:collectionName", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
+    const isAdmin = req.user?.role === "ADMIN";
     const { collectionName } = req.params;
+
+    if (isCollectionRestricted(collectionName, isAdmin)) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Confidential collection cannot be exported publicly."
+      });
+    }
+
     const db = await getDb();
     if (!db) {
-      return res.status(503).json({ success: false, message: "Database not connected" });
+      return res.status(503).json({ success: false, message: "Database unavailable" });
     }
     const colInstance = db.collection(collectionName);
 
     const docs = await colInstance.find({}).limit(5000).toArray();
-    const sanitized = docs.map((d) => sanitizeDocument(d, collectionName));
+    const sanitized = docs.map((d) => sanitizeDocument(d, collectionName, isAdmin));
 
     res.setHeader("Content-Disposition", `attachment; filename=flowsense_${collectionName}_export.json`);
     res.setHeader("Content-Type", "application/json");
     return res.send(JSON.stringify(sanitized, null, 2));
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
+  } catch {
+    return res.status(500).json({ success: false, message: "Export failed." });
   }
 });
 

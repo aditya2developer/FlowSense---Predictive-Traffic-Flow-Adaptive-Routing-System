@@ -7,7 +7,6 @@ import {
   Search,
   Table,
   Code2,
-  CheckCircle2,
   Copy,
   Check,
   Download,
@@ -15,18 +14,16 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   ShieldCheck,
   Sparkles,
   Zap,
   Info,
-  Radio,
   FileText
 } from "lucide-react";
 import {
   fetchDatabaseOverview,
   fetchCollectionDocuments,
-  getDatabaseExportUrl
+  downloadCollectionExport
 } from "../api";
 
 export default function DatabasePlatform() {
@@ -48,7 +45,6 @@ export default function DatabasePlatform() {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [copiedJson, setCopiedJson] = useState(false);
-  const [copiedUri, setCopiedUri] = useState(false);
 
   // Debounce search input
   useEffect(() => {
@@ -61,7 +57,28 @@ export default function DatabasePlatform() {
 
   // Load Database Overview on mount
   useEffect(() => {
-    loadOverview();
+    let active = true;
+    fetchDatabaseOverview()
+      .then((res) => {
+        if (!active) return;
+        if (res && res.success) {
+          setOverview(res);
+          if (res.collections && res.collections.length > 0) {
+            setActiveCollection((prev) =>
+              res.collections.some((c) => c.name === prev) ? prev : res.collections[0].name
+            );
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load DB overview:", err);
+      })
+      .finally(() => {
+        if (active) setLoadingOverview(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Load documents when active collection, page, limit, or debounced search changes
@@ -78,11 +95,9 @@ export default function DatabasePlatform() {
       if (res && res.success) {
         setOverview(res);
         if (res.collections && res.collections.length > 0) {
-          // If activeCollection not in list, set to first
-          const exists = res.collections.some((c) => c.name === activeCollection);
-          if (!exists) {
-            setActiveCollection(res.collections[0].name);
-          }
+          setActiveCollection((prev) =>
+            res.collections.some((c) => c.name === prev) ? prev : res.collections[0].name
+          );
         }
       }
     } catch (err) {
@@ -112,10 +127,7 @@ export default function DatabasePlatform() {
 
   function handleCopy(text, key) {
     navigator.clipboard.writeText(text);
-    if (key === "uri") {
-      setCopiedUri(true);
-      setTimeout(() => setCopiedUri(false), 2000);
-    } else if (key === "modal-json") {
+    if (key === "modal-json") {
       setCopiedJson(true);
       setTimeout(() => setCopiedJson(false), 2000);
     } else {
@@ -156,12 +168,12 @@ export default function DatabasePlatform() {
     return "cell-badge-default";
   }
 
-  const clusterHost = overview?.cluster?.host || "cluster0.pbc06oq.mongodb.net";
+  const clusterHost = overview?.cluster?.host || "Encrypted Smart City Cloud";
   const dbName = overview?.cluster?.dbName || "flowsense";
-  const clusterRegion = overview?.cluster?.region || "AWS Mumbai (ap-south-1)";
-  const totalDocs = overview?.stats?.totalDocuments || 9265;
-  const totalCols = overview?.stats?.totalCollections || 7;
-  const latency = overview?.cluster?.pingLatencyMs || 140;
+  const clusterRegion = overview?.cluster?.region || "Asia South (India)";
+  const totalDocs = overview?.stats?.totalDocuments || 0;
+  const totalCols = overview?.stats?.totalCollections || 0;
+  const latency = overview?.cluster?.pingLatencyMs || 0;
 
   return (
     <div className="db-platform-page">
@@ -298,26 +310,15 @@ export default function DatabasePlatform() {
             })}
           </div>
 
-          {/* CLUSTER CONNECTION INFO WIDGET */}
+          {/* PROTECTED DATA NOTICE WIDGET */}
           <div className="sidebar-connection-widget">
             <div className="conn-widget-header">
               <ShieldCheck size={14} className="text-emerald" />
-              <span>Atlas Connection String</span>
+              <span>Privacy &amp; Access Control</span>
             </div>
             <p className="conn-widget-hint">
-              Used by FlowSense backend microservices to stream traffic telemetry.
+              Confidential records, personal emails, phone numbers, and credentials are hidden and restricted strictly to authorized Administrators.
             </p>
-            <div className="conn-uri-box">
-              <code>mongodb+srv://...@{clusterHost}/flowsense</code>
-              <button
-                type="button"
-                className="uri-copy-btn"
-                onClick={() => handleCopy("mongodb+srv://adityakumarsingh84092_db_user:aditya@cluster0.pbc06oq.mongodb.net/flowsense", "uri")}
-                title="Copy Atlas URI"
-              >
-                {copiedUri ? <Check size={13} className="text-emerald" /> : <Copy size={13} />}
-              </button>
-            </div>
           </div>
         </aside>
 
@@ -379,17 +380,15 @@ export default function DatabasePlatform() {
               </div>
 
               {/* EXPORT JSON BUTTON */}
-              <a
-                href={getDatabaseExportUrl(activeCollection)}
-                target="_blank"
-                rel="noreferrer"
-                download={`flowsense_${activeCollection}.json`}
+              <button
+                type="button"
+                onClick={() => downloadCollectionExport(activeCollection)}
                 className="db-export-btn"
                 title="Download entire collection as JSON"
               >
                 <Download size={14} />
                 <span>Export JSON</span>
-              </a>
+              </button>
             </div>
           </div>
 

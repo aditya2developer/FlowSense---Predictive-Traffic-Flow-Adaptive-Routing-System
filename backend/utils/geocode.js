@@ -338,19 +338,31 @@ const INDIAN_LANDMARKS_DB = [
 
   // --- UTTAR PRADESH & RAJASTHAN ---
   {
-    keys: ["hazratganj", "lucknow", "ccs airport lucknow"],
+    keys: ["hazratganj", "vidhan sabha lucknow"],
     lat: 26.8467,
     lon: 80.9462,
     displayName: "Hazratganj & Vidhan Sabha Marg, Lucknow, Uttar Pradesh, India"
   },
   {
-    keys: ["hawa mahal", "jaipur", "jaipur airport"],
+    keys: ["ccs airport lucknow", "lucknow airport", "chaudhary charan singh airport"],
+    lat: 26.7606,
+    lon: 80.8893,
+    displayName: "Chaudhary Charan Singh International Airport (LKO), Amausi, Lucknow, India"
+  },
+  {
+    keys: ["hawa mahal", "badi choupad", "pink city jaipur"],
     lat: 26.9239,
     lon: 75.8267,
     displayName: "Hawa Mahal & Badi Choupad, Pink City, Jaipur, Rajasthan, India"
   },
   {
-    keys: ["taj mahal", "agra", "yamuna expressway"],
+    keys: ["jaipur airport", "jaipur international airport", "sanganer airport"],
+    lat: 26.8242,
+    lon: 75.8122,
+    displayName: "Jaipur International Airport (JAI), Sanganer, Jaipur, Rajasthan, India"
+  },
+  {
+    keys: ["taj mahal", "yamuna expressway agra"],
     lat: 27.1751,
     lon: 78.0421,
     displayName: "Taj Mahal & Yamuna Expressway Terminal, Agra, Uttar Pradesh, India"
@@ -358,7 +370,7 @@ const INDIAN_LANDMARKS_DB = [
 
   // --- GUJARAT ---
   {
-    keys: ["sg highway", "ahmedabad", "bodakdev"],
+    keys: ["sg highway", "bodakdev"],
     lat: 23.0338,
     lon: 72.5074,
     displayName: "Sarkhej-Gandhinagar Highway (SG Highway), Ahmedabad, Gujarat, India"
@@ -371,14 +383,38 @@ const INDIAN_LANDMARKS_DB = [
   }
 ];
 
+const BROAD_CITY_NAMES = new Set([
+  "delhi",
+  "new delhi",
+  "noida",
+  "gurugram",
+  "gurgaon",
+  "mumbai",
+  "pune",
+  "bengaluru",
+  "bangalore",
+  "hyderabad",
+  "chennai",
+  "kolkata",
+  "chandigarh",
+  "jalandhar",
+  "phagwara",
+  "ludhiana",
+  "amritsar",
+  "jaipur",
+  "lucknow",
+  "ahmedabad",
+  "agra"
+]);
+
 /**
- * Check built-in Indian database first (<1ms response time)
+ * Check built-in Indian database first (<1ms response time) without hijacking longer multi-word addresses
  */
 function findInLocalDictionary(locationQuery) {
   const q = String(locationQuery || "").toLowerCase().trim();
   if (!q) return null;
 
-  // 1. Pass 1: Strict Exact match on full key (e.g. "phagwara" === "phagwara")
+  // 1. Strict Exact match on full key
   for (const entry of INDIAN_LANDMARKS_DB) {
     for (const k of entry.keys) {
       if (q === k) {
@@ -391,44 +427,37 @@ function findInLocalDictionary(locationQuery) {
     }
   }
 
-  // 2. Pass 2: Exact word token match
+  // 2. Longest Multi-Word Phrase Match (only keys with >= 2 words, so bare city names don't hijack real streets)
+  let bestPhraseEntry = null;
+  let bestPhraseLen = 0;
+  for (const entry of INDIAN_LANDMARKS_DB) {
+    for (const k of entry.keys) {
+      if (k.includes(" ") && q.includes(k) && k.length > bestPhraseLen) {
+        bestPhraseEntry = entry;
+        bestPhraseLen = k.length;
+      }
+    }
+  }
+  if (bestPhraseEntry) {
+    return {
+      latitude: bestPhraseEntry.lat,
+      longitude: bestPhraseEntry.lon,
+      displayName: bestPhraseEntry.displayName
+    };
+  }
+
+  // 3. Specific non-city single-word token match (only for short 1-2 word queries)
   const qWords = q.split(/[\s,.-]+/).filter((w) => w.length > 2);
-  for (const entry of INDIAN_LANDMARKS_DB) {
-    for (const k of entry.keys) {
-      const kWords = k.split(/[\s,.-]+/);
-      // If primary key name matches user keyword directly
-      if (kWords.length === 1 && qWords.includes(kWords[0])) {
-        return {
-          latitude: entry.lat,
-          longitude: entry.lon,
-          displayName: entry.displayName
-        };
-      }
-    }
-  }
-
-  // 3. Pass 3: Multi-word phrase inclusion (e.g. user query includes key)
-  for (const entry of INDIAN_LANDMARKS_DB) {
-    for (const k of entry.keys) {
-      if (q.includes(k)) {
-        return {
-          latitude: entry.lat,
-          longitude: entry.lon,
-          displayName: entry.displayName
-        };
-      }
-    }
-  }
-
-  // 4. Pass 4: Key includes user query
-  for (const entry of INDIAN_LANDMARKS_DB) {
-    for (const k of entry.keys) {
-      if (k.includes(q)) {
-        return {
-          latitude: entry.lat,
-          longitude: entry.lon,
-          displayName: entry.displayName
-        };
+  if (qWords.length <= 2) {
+    for (const entry of INDIAN_LANDMARKS_DB) {
+      for (const k of entry.keys) {
+        if (!k.includes(" ") && !BROAD_CITY_NAMES.has(k) && qWords.includes(k)) {
+          return {
+            latitude: entry.lat,
+            longitude: entry.lon,
+            displayName: entry.displayName
+          };
+        }
       }
     }
   }
@@ -493,7 +522,7 @@ async function queryNominatim(locationQuery) {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "FlowSense-SmartCity/2.0 (admin@flowsense.gov.in)"
+        "User-Agent": "FlowSense-SmartCity/2.0"
       }
     });
     clearTimeout(timeout);

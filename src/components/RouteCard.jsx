@@ -1,4 +1,4 @@
-import { Sparkles, AlertTriangle, Lightbulb, Compass, Clock, Activity, Zap } from "lucide-react";
+import { Sparkles, AlertTriangle, Lightbulb, Compass } from "lucide-react";
 
 function RouteCard({ route, isSelected = false, onSelect = null }) {
   const congestion = route.congestion?.toUpperCase() || "UNKNOWN";
@@ -179,7 +179,7 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
       {/* HISTORICAL TRAFFIC DETAILS ACCORDION */}
       {prediction && (
         <details className="traffic-summary-accordion">
-          <summary>View Historical Traffic Details from MongoDB Atlas</summary>
+          <summary>View Historical Corridor &amp; Traffic Telemetry</summary>
           <div className="traffic-summary-content">
             {Number.isFinite(prediction.predictedVehicleCount) && (
               <p>
@@ -195,7 +195,7 @@ function RouteCard({ route, isSelected = false, onSelect = null }) {
             )}
             {Number.isFinite(prediction.historicalRecords) && (
               <p>
-                Atlas observations analyzed:{" "}
+                Telemetry observations analyzed:{" "}
                 <strong>{prediction.historicalRecords} time-series records</strong>
               </p>
             )}

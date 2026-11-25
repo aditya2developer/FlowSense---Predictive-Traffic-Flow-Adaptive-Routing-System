@@ -5,6 +5,7 @@ import {
   fetchAdminUsers,
   updateUserRole,
   verifyAdminUser,
+  verifyUserProfileUpdate,
   deleteAdminUser,
   createAdminUser,
   fetchAdminSegments,
@@ -98,11 +99,27 @@ function AdminPortal() {
   }
 
   useEffect(() => {
-    if (isAdmin) {
-      loadAdminData();
-    } else {
-      setLoading(false);
-    }
+    if (!isAdmin) return;
+    let active = true;
+    Promise.all([
+      fetchAdminStats().catch(() => ({ success: false })),
+      fetchAdminUsers().catch(() => ({ success: false, data: [] })),
+      fetchAdminSegments().catch(() => ({ success: false, data: [] })),
+      fetchAdminIncidents().catch(() => ({ success: false, data: [] }))
+    ])
+      .then(([statsRes, usersRes, segmentsRes, incidentsRes]) => {
+        if (!active) return;
+        if (statsRes.success) setData(statsRes.data);
+        if (usersRes.success) setUsersList(usersRes.data || []);
+        if (segmentsRes.success) setSegmentsList(segmentsRes.data || []);
+        if (incidentsRes.success) setIncidentsList(incidentsRes.data || []);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [isAdmin]);
 
   function notify(msg) {
@@ -115,7 +132,7 @@ function AdminPortal() {
     try {
       const res = await updateUserRole(userId, newRole);
       if (res.success) {
-        notify(`User role updated to ${newRole} in MongoDB.`);
+        notify(`User role updated to ${newRole}.`);
         loadAdminData();
       }
     } catch (err) {
@@ -135,6 +152,21 @@ function AdminPortal() {
       }
     } catch (err) {
       alert("Verification error: " + err.message);
+    }
+  }
+
+  async function handleVerifyProfileUpdate(userId, status, userName) {
+    try {
+      const notes = verificationNotes[`upd-${userId}`] || "";
+      const res = await verifyUserProfileUpdate(userId, status, notes);
+      if (res.success) {
+        notify(res.message || `Profile update for ${userName} marked as ${status}.`);
+        loadAdminData();
+      } else {
+        alert(res.message || "Update verification failed.");
+      }
+    } catch (err) {
+      alert("Update verification error: " + err.message);
     }
   }
 
@@ -163,7 +195,7 @@ function AdminPortal() {
         badgeNumber: newUserBadge
       });
       if (res.success) {
-        notify(`New user ${newUserName} (${newUserRole}) added to MongoDB!`);
+        notify(`New user ${newUserName} (${newUserRole}) added!`);
         setShowAddUserModal(false);
         setNewUserName("");
         setNewUserEmail("");
@@ -179,11 +211,11 @@ function AdminPortal() {
 
   // Segment Actions
   async function handleDeleteSegment(segmentId, name) {
-    if (!window.confirm(`Remove road segment '${name}' from MongoDB corridors?`)) return;
+    if (!window.confirm(`Remove road segment '${name}' from registered corridors?`)) return;
     try {
       const res = await deleteRoadSegment(segmentId);
       if (res.success) {
-        notify(`Corridor '${name}' removed from MongoDB.`);
+        notify(`Corridor '${name}' removed.`);
         loadAdminData();
       }
     } catch (err) {
@@ -217,7 +249,7 @@ function AdminPortal() {
       });
 
       if (res.success) {
-        notify(`New Corridor '${newRoadName}' saved to MongoDB!`);
+        notify(`New Corridor '${newRoadName}' saved!`);
         setShowAddSegmentModal(false);
         setNewRoadId("");
         setNewRoadName("");
@@ -258,12 +290,12 @@ function AdminPortal() {
 
   // Reseed Action
   async function handleReseed() {
-    if (!window.confirm("Reseed MongoDB with multi-city traffic memory (Delhi, Mumbai, Bengaluru, Chandigarh, Jalandhar)?")) return;
+    if (!window.confirm("Reseed multi-city traffic memory (Delhi, Mumbai, Bengaluru, Chandigarh, Jalandhar)?")) return;
     setIsReseeding(true);
     try {
       const res = await reseedDatabase();
       if (res.success) {
-        notify("MongoDB database successfully reseeded with multi-city corridors!");
+        notify("Multi-city corridors and traffic memory reseeded!");
         loadAdminData();
       } else {
         alert("Reseed failed: " + res.message);
@@ -320,7 +352,7 @@ function AdminPortal() {
             </div>
             <h1>Chief Administrator Access Required</h1>
             <p>
-              The Administrative Console gives full root control over MongoDB traffic memory, road segments, user role promotions, and emergency siren broadcasts.
+              The Administrative Console gives full control over traffic memory, road segments, account approvals, and emergency broadcasts.
             </p>
 
             <div style={{ marginTop: 24, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
@@ -351,6 +383,10 @@ function AdminPortal() {
   const pendingOfficers = usersList.filter(
     (u) => u.role === "AUTHORITY" && u.verificationStatus === "PENDING"
   );
+  const pendingProfileUpdates = usersList.filter(
+    (u) => u.profileUpdateStatus === "PENDING" && u.pendingProfileUpdates
+  );
+  const totalPendingVerifications = pendingOfficers.length + pendingProfileUpdates.length;
   const reviewedOfficers = usersList.filter(
     (u) => u.role === "AUTHORITY" && u.verificationStatus !== "PENDING"
   );
@@ -365,7 +401,7 @@ function AdminPortal() {
           </div>
           <h1>Platform Administration &amp; Intelligence</h1>
           <p>
-            Logged in as <strong>{user?.name || "Chief Administrator"}</strong> ({user?.email}) • Full CRUD Oversight &amp; MongoDB Persistence
+            Logged in as <strong>{user?.name || "Chief Administrator"}</strong> ({user?.email}) • Platform Governance &amp; Approvals
           </p>
         </div>
 
@@ -384,7 +420,7 @@ function AdminPortal() {
             <div>
               <span className="metric-title">Traffic Memory Records</span>
               <strong className="metric-value">{counts.trafficReadings?.toLocaleString() || "9,240"}</strong>
-              <span className="metric-foot">MongoDB Stored</span>
+              <span className="metric-foot">Telemetry Stored</span>
             </div>
           </div>
 
@@ -475,9 +511,9 @@ function AdminPortal() {
           className={`admin-tab-btn ${activeTab === "verification" ? "active" : ""}`}
           onClick={() => setActiveTab("verification")}
         >
-          <BadgeCheck size={16} /> Police Verification
-          {pendingOfficers.length > 0 && (
-            <span className="pending-count-badge">{pendingOfficers.length} Pending</span>
+          <BadgeCheck size={16} /> Verifications
+          {totalPendingVerifications > 0 && (
+            <span className="pending-count-badge">{totalPendingVerifications} Pending</span>
           )}
         </button>
 
@@ -520,8 +556,8 @@ function AdminPortal() {
           <div className="admin-grid-two-col">
             <section className="portal-card">
               <div className="portal-card-header">
-                <h2>MongoDB Traffic Memory Matrix</h2>
-                <span className="live-pulse-badge">MongoDB Live Connected</span>
+                <h2>Traffic Memory Engine Matrix</h2>
+                <span className="live-pulse-badge">Live Telemetry Connected</span>
               </div>
               <div className="db-stats-matrix">
                 <div className="matrix-stat-item">
@@ -584,7 +620,7 @@ function AdminPortal() {
                   assignments before unlocking Police Command privileges.
                 </p>
               </div>
-              <span className="live-pulse-badge">MongoDB Official Registry</span>
+              <span className="live-pulse-badge">Official Verification Registry</span>
             </div>
 
             {pendingOfficers.length === 0 ? (
@@ -657,6 +693,97 @@ function AdminPortal() {
                 ))}
               </div>
             )}
+
+            {/* USER PROFILE & DATA UPDATE VERIFICATION QUEUE */}
+            <div style={{ marginTop: 30, paddingTop: 22, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+              <h3 style={{ fontSize: 16, marginBottom: 12, color: "#f8fafc" }}>
+                Pending User Profile &amp; Data Update Requests ({pendingProfileUpdates.length})
+              </h3>
+              {pendingProfileUpdates.length === 0 ? (
+                <p style={{ color: "#94a3b8", fontSize: 13 }}>
+                  No user profile updates awaiting review right now.
+                </p>
+              ) : (
+                <div className="officer-verify-grid">
+                  {pendingProfileUpdates.map((u) => {
+                    const changes = Object.entries(u.pendingProfileUpdates || {});
+                    return (
+                      <div key={`upd-${u._id}`} className="officer-verify-card" style={{ borderColor: "rgba(56, 189, 248, 0.4)" }}>
+                        <div className="officer-card-top">
+                          <div>
+                            <span className="verified-chip chip-status-pending">
+                              <Clock size={12} /> DATA UPDATE PENDING
+                            </span>
+                            <h3>{u.name}</h3>
+                            <p className="officer-email">{u.email}</p>
+                          </div>
+                          <span className={`role-badge role-${u.role?.toLowerCase()}`}>{u.role}</span>
+                        </div>
+
+                        <div className="profile-diff-list">
+                          {changes.map(([field, nextVal]) => {
+                            const isImageField = field === "avatar" || field === "idProofImage";
+                            return (
+                              <div key={field} className="profile-diff-row">
+                                <span className="diff-field-name">{field}</span>
+                                {isImageField ? (
+                                  nextVal ? (
+                                    <img
+                                      src={nextVal}
+                                      alt={field}
+                                      className="admin-inc-thumb"
+                                      onClick={() => setLightboxImage(nextVal)}
+                                    />
+                                  ) : (
+                                    <span style={{ color: "#f87171", fontSize: 12 }}>Remove photo</span>
+                                  )
+                                ) : (
+                                  <div className="diff-values">
+                                    <span className="diff-old">{String(u[field] || "—")}</span>
+                                    <span>→</span>
+                                    <strong className="diff-new">{String(nextVal || "—")}</strong>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <input
+                          type="text"
+                          placeholder="Optional review remarks for user..."
+                          className="verify-notes-input"
+                          value={verificationNotes[`upd-${u._id}`] || ""}
+                          onChange={(e) =>
+                            setVerificationNotes((prev) => ({
+                              ...prev,
+                              [`upd-${u._id}`]: e.target.value
+                            }))
+                          }
+                        />
+
+                        <div className="officer-verify-actions">
+                          <button
+                            type="button"
+                            className="btn-verify-approve"
+                            onClick={() => handleVerifyProfileUpdate(u._id, "APPROVED", u.name)}
+                          >
+                            <CheckCircle2 size={15} /> Approve Update
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-verify-reject"
+                            onClick={() => handleVerifyProfileUpdate(u._id, "REJECTED", u.name)}
+                          >
+                            <XCircle size={15} /> Reject
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* REVIEWED POLICE ACCOUNTS HISTORY */}
             {reviewedOfficers.length > 0 && (
@@ -794,7 +921,7 @@ function AdminPortal() {
                           type="button"
                           className="btn-table-delete"
                           onClick={() => handleDeleteSegment(seg._id, seg.roadName)}
-                          title="Delete corridor from MongoDB"
+                          title="Delete corridor"
                         >
                           <Trash2 size={14} /> Remove
                         </button>
@@ -929,7 +1056,7 @@ function AdminPortal() {
             <div className="portal-card-header">
               <div>
                 <h2>Role-Based Access Control (RBAC) &amp; Accounts</h2>
-                <p>All accounts are stored in MongoDB with bcrypt hashing. Modify permissions or add official accounts.</p>
+                <p>Manage platform roles, verification statuses, and official user accounts.</p>
               </div>
               <button
                 type="button"
@@ -1093,7 +1220,7 @@ function AdminPortal() {
         <div className="emergency-modal-overlay">
           <div className="admin-modal-card">
             <div className="admin-modal-header">
-              <h3><Route size={18} /> Register New Road Corridor in MongoDB</h3>
+              <h3><Route size={18} /> Register New Road Corridor</h3>
               <button type="button" onClick={() => setShowAddSegmentModal(false)}><X size={18} /></button>
             </div>
             <form onSubmit={handleCreateSegment} className="admin-modal-form">
@@ -1148,7 +1275,7 @@ function AdminPortal() {
               <div className="admin-modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setShowAddSegmentModal(false)}>Cancel</button>
                 <button type="submit" className="auth-submit-btn" style={{ background: "linear-gradient(135deg, #a855f7, #6366f1)" }}>
-                  Save Corridor to MongoDB
+                  Save Corridor
                 </button>
               </div>
             </form>
@@ -1237,7 +1364,7 @@ function AdminPortal() {
               <div className="admin-modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setShowAddUserModal(false)}>Cancel</button>
                 <button type="submit" className="auth-submit-btn" style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}>
-                  Create Account in MongoDB
+                  Create Account
                 </button>
               </div>
             </form>

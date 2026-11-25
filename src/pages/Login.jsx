@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
+import { useCity } from "../context/CityContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { fetchCaptcha, sendOtp, resetUserPassword } from "../api";
+import { INDIA_STATES_AND_UTS, getCitiesForState } from "../utils/indiaLocations";
 import { compressImageFile } from "../utils/imageHelper";
 import { evaluatePasswordStrength } from "../utils/passwordStrength";
 import PasswordStrengthMeter from "../components/PasswordStrengthMeter";
@@ -20,61 +22,48 @@ import {
   BadgeAlert,
   KeyRound,
   Phone,
-  MapPin,
   Eye,
   EyeOff,
   Send,
   ShieldCheck,
   Upload,
   X,
-  FileBadge2,
-  Clock,
-  Sparkles,
-  Copy
+  FileBadge2
 } from "lucide-react";
 
 const ROLE_PRESETS = {
   PUBLIC: {
     role: "PUBLIC",
-    title: "Citizen & Commuter Portal",
-    subtitle: "Real-time AI routing, hazard photo alerts & safety intelligence",
+    title: "Citizen & Commuter",
+    subtitle: "Live routes, weather alerts, hazard reporting & city updates",
     icon: UserCheck,
     accent: "#10b981",
     ambient: "public-ambient",
     pillActiveClass: "role-pill-public-active",
-    badgeLabel: "Public Citizen Access",
-    defaultEmail: "citizen@flowsense.in",
-    defaultPass: "citizen",
-    defaultDept: "Daily City Commuter",
-    badgePlaceholder: "CITIZEN-001"
+    badgeLabel: "Commuter Account",
+    deptPlaceholder: "Daily City Commuter"
   },
   AUTHORITY: {
     role: "AUTHORITY",
-    title: "Traffic Police & Authority Command",
-    subtitle: "Green corridor preemption, hazard dispatch & badge verification",
+    title: "Traffic Police & Authority",
+    subtitle: "Green corridor priority routing & live hazard dispatch",
     icon: Radio,
     accent: "#06b6d4",
     ambient: "authority-ambient",
     pillActiveClass: "role-pill-authority-active",
-    badgeLabel: "Official Police ID & Admin Approval Required",
-    defaultEmail: "police@flowsense.gov.in",
-    defaultPass: "police",
-    defaultDept: "City Traffic Police & Dispatch Wing",
-    badgePlaceholder: "TP-8409"
+    badgeLabel: "Official ID & Admin Approval Required",
+    deptPlaceholder: "City Traffic Police"
   },
   ADMIN: {
     role: "ADMIN",
-    title: "Global Root Administrator",
-    subtitle: "Officer verification, MongoDB oversight & corridor control",
+    title: "System Administrator",
+    subtitle: "Officer verification, data updates approval & system oversight",
     icon: Shield,
     accent: "#a855f7",
     ambient: "admin-ambient",
     pillActiveClass: "role-pill-admin-active",
-    badgeLabel: "Level 1 System Clearance",
-    defaultEmail: "admin@flowsense.gov.in",
-    defaultPass: "admin",
-    defaultDept: "Smart Mobility Headquarters",
-    badgePlaceholder: "SYS-ADMIN-01"
+    badgeLabel: "Administrator Clearance",
+    deptPlaceholder: "Smart Mobility Operations"
   }
 };
 
@@ -92,6 +81,7 @@ const POLICE_RANKS = [
 
 function Login() {
   const { login, register, isAuthenticated, user } = useAuth();
+  const { activeState, activeCity, selectCity } = useCity();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -107,48 +97,49 @@ function Login() {
     setPrevSearchStr(searchParams.toString());
     setExplicitMode(null);
   }
+
   const [activeRole, setActiveRole] = useState(
     ["ADMIN", "AUTHORITY", "PUBLIC"].includes(roleQuery) ? roleQuery : "PUBLIC"
   );
 
-  // Common Auth Fields
+  // Form Fields
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // Extended Profile / Confidential Registration Fields
   const [phone, setPhone] = useState("");
-  const [city, setCity] = useState("");
-  const [stateName, setStateName] = useState("");
+  const [stateName, setStateName] = useState(() => activeState || "Delhi (NCT)");
+  const [city, setCity] = useState(() => activeCity || "Delhi NCR");
+  const [customCity, setCustomCity] = useState("");
   const [department, setDepartment] = useState("");
 
-  // Traffic Police Official Credential Fields
+  // Police Credential Fields
   const [badgeNumber, setBadgeNumber] = useState("");
   const [rank, setRank] = useState("Traffic Inspector");
   const [stationName, setStationName] = useState("");
   const [idProofImage, setIdProofImage] = useState("");
   const [idProofUploading, setIdProofUploading] = useState(false);
 
-  // Real-time CAPTCHA state
+  // CAPTCHA
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaSvgUrl, setCaptchaSvgUrl] = useState("");
   const [captchaAnswer, setCaptchaAnswer] = useState("");
   const [loadingCaptcha, setLoadingCaptcha] = useState(false);
 
-  // Real-time 6-Digit OTP state
+  // Email OTP
   const [otpCode, setOtpCode] = useState("");
   const [otpSending, setOtpSending] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
-  const [otpInfo, setOtpInfo] = useState(null);
+  const [otpSentMsg, setOtpSentMsg] = useState("");
 
-  // Submission / Feedback state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  // Load CAPTCHA from backend
+  const availableCities = getCitiesForState(stateName);
+
   const loadCaptchaChallenge = useCallback(async () => {
     setLoadingCaptcha(true);
     try {
@@ -159,7 +150,7 @@ function Login() {
         setCaptchaAnswer("");
       }
     } catch {
-      // Quiet fallback; handled on submit if empty
+      // ignore initial error
     } finally {
       setLoadingCaptcha(false);
     }
@@ -183,22 +174,16 @@ function Login() {
     };
   }, [mode]);
 
-  // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && user) {
-      if (redirectTarget) {
-        navigate(redirectTarget);
-      } else if (user.role === "ADMIN") {
-        navigate("/admin");
-      } else if (user.role === "AUTHORITY") {
+      if (redirectTarget) navigate(redirectTarget);
+      else if (user.role === "ADMIN") navigate("/admin");
+      else if (user.role === "AUTHORITY") {
         navigate(user.verificationStatus === "PENDING" ? "/profile" : "/authority");
-      } else {
-        navigate("/");
-      }
+      } else navigate("/");
     }
   }, [isAuthenticated, user, redirectTarget, navigate]);
 
-  // OTP cooldown countdown timer
   useEffect(() => {
     if (otpCooldown <= 0) return undefined;
     const timer = setInterval(() => {
@@ -211,35 +196,39 @@ function Login() {
     setExplicitMode(nextMode);
     setError("");
     setSuccessMsg("");
-    setOtpInfo(null);
+    setOtpSentMsg("");
     setOtpCode("");
     setConfirmPassword("");
     setCaptchaAnswer("");
   }
 
+  function handleStateChange(nextState) {
+    setStateName(nextState);
+    const list = getCitiesForState(nextState);
+    setCity(list[0]?.name || "Other");
+    setCustomCity("");
+  }
+
   async function handleSendOtp(purpose) {
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      setError("Please enter a valid email address before requesting a 6-digit OTP.");
+      setError("Please enter a valid email address first.");
       return;
     }
 
     setError("");
+    setOtpSentMsg("");
     setOtpSending(true);
     try {
       const res = await sendOtp(cleanEmail, purpose);
       if (res.success) {
-        setOtpInfo({
-          message: res.message,
-          deliveryMode: res.deliveryMode,
-          otpPreview: res.otpPreview
-        });
+        setOtpSentMsg(res.message || `Verification OTP sent to ${cleanEmail}. Check your inbox.`);
         setOtpCooldown(45);
       } else {
-        setError(res.message || "Could not send OTP verification code.");
+        setError(res.message || "Unable to send verification email.");
       }
     } catch (err) {
-      setError("Failed to contact OTP dispatch server: " + err.message);
+      setError("Failed to contact verification service: " + err.message);
     } finally {
       setOtpSending(false);
     }
@@ -254,7 +243,7 @@ function Login() {
       const compressed = await compressImageFile(file, 720, 0.8);
       setIdProofImage(compressed);
     } catch (err) {
-      setError(err.message || "Could not process Police ID photo.");
+      setError(err.message || "Could not process uploaded ID image.");
     } finally {
       setIdProofUploading(false);
       e.target.value = "";
@@ -282,20 +271,23 @@ function Login() {
       );
 
       if (res.success) {
-        setSuccessMsg(`Verified & Authenticated! Welcome back, ${res.user?.name}.`);
+        if (res.user?.city) {
+          selectCity({ state: res.user.state || activeState, city: res.user.city });
+        }
+        setSuccessMsg(`Welcome back, ${res.user?.name}!`);
         setTimeout(() => {
           if (redirectTarget) navigate(redirectTarget);
           else if (res.user?.role === "ADMIN") navigate("/admin");
           else if (res.user?.role === "AUTHORITY") {
             navigate(res.user?.verificationStatus === "PENDING" ? "/profile" : "/authority");
           } else navigate("/");
-        }, 650);
+        }, 600);
       } else {
-        setError(res.message || "Invalid credentials. Please check email, password, and CAPTCHA.");
+        setError(res.message || "Invalid email, password, or CAPTCHA.");
         loadCaptchaChallenge();
       }
     } catch (err) {
-      setError("Unable to reach authentication server: " + err.message);
+      setError("Unable to sign in right now: " + err.message);
       loadCaptchaChallenge();
     } finally {
       setLoading(false);
@@ -308,23 +300,29 @@ function Login() {
     setSuccessMsg("");
 
     if (!name.trim()) {
-      setError("Full Official Name is required.");
+      setError("Full Name is required.");
       return;
     }
 
     const strength = evaluatePasswordStrength(password);
     if (!strength.valid) {
-      setError("Password must meet all 5 Enterprise Hard Password rules shown in the meter.");
+      setError("Please choose a stronger password meeting all 5 criteria.");
       return;
     }
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match. Please confirm your password carefully.");
+      setError("Passwords do not match.");
       return;
     }
 
     if (!otpCode.trim() || otpCode.trim().length < 6) {
-      setError("Please request and enter the 6-digit Email OTP verification code.");
+      setError("Please enter the 6-digit OTP sent to your email.");
+      return;
+    }
+
+    const finalCity = city === "Other" ? customCity.trim() : city;
+    if (!finalCity) {
+      setError("Please select or enter your city.");
       return;
     }
 
@@ -334,13 +332,13 @@ function Login() {
         return;
       }
       if (!idProofImage) {
-        setError("Please upload your Official Police ID / Warrant Card photo for Admin verification.");
+        setError("Please upload your Official Police ID Card photo for Admin verification.");
         return;
       }
     }
 
     if (!captchaToken || !captchaAnswer.trim()) {
-      setError("Please solve the security CAPTCHA challenge before submitting.");
+      setError("Please complete the CAPTCHA verification.");
       return;
     }
 
@@ -352,13 +350,10 @@ function Login() {
         password,
         role: activeRole,
         phone: phone.trim(),
-        city: city.trim(),
-        state: stateName.trim(),
-        department: department.trim() || ROLE_PRESETS[activeRole].defaultDept,
-        badgeNumber:
-          activeRole === "PUBLIC"
-            ? ""
-            : badgeNumber.trim() || ROLE_PRESETS[activeRole].badgePlaceholder,
+        city: finalCity,
+        state: stateName,
+        department: department.trim() || ROLE_PRESETS[activeRole].deptPlaceholder,
+        badgeNumber: activeRole === "PUBLIC" ? "" : badgeNumber.trim(),
         rank: activeRole === "AUTHORITY" ? rank.trim() : "",
         stationName: activeRole === "AUTHORITY" ? stationName.trim() : "",
         idProofImage: activeRole === "AUTHORITY" ? idProofImage : "",
@@ -368,13 +363,14 @@ function Login() {
       });
 
       if (res.success) {
+        selectCity({ state: stateName, city: finalCity });
         const isPendingPolice =
           res.user?.role === "AUTHORITY" && res.user?.verificationStatus === "PENDING";
 
         setSuccessMsg(
           isPendingPolice
-            ? "Police credentials & ID proof submitted to MongoDB! Account is PENDING Admin verification. Redirecting to your Profile..."
-            : `Confidential registration verified in MongoDB! Welcome, ${res.user?.name}.`
+            ? "Police registration submitted! Your ID and badge are pending Administrator verification."
+            : `Registration complete! Welcome, ${res.user?.name}.`
         );
 
         setTimeout(() => {
@@ -382,7 +378,7 @@ function Login() {
           else if (res.user?.role === "ADMIN") navigate("/admin");
           else if (res.user?.role === "AUTHORITY") navigate("/authority");
           else navigate("/");
-        }, 1000);
+        }, 900);
       } else {
         setError(res.message || "Registration failed.");
         if (res.captchaFailed) {
@@ -390,7 +386,7 @@ function Login() {
         }
       }
     } catch (err) {
-      setError("Unable to connect to registration service: " + err.message);
+      setError("Unable to complete registration: " + err.message);
       loadCaptchaChallenge();
     } finally {
       setLoading(false);
@@ -404,7 +400,7 @@ function Login() {
 
     const strength = evaluatePasswordStrength(password);
     if (!strength.valid) {
-      setError("New password must satisfy all 5 security rules.");
+      setError("New password must meet all 5 security criteria.");
       return;
     }
     if (password !== confirmPassword) {
@@ -412,7 +408,7 @@ function Login() {
       return;
     }
     if (!otpCode.trim() || otpCode.trim().length < 6) {
-      setError("Please enter the 6-digit password reset OTP.");
+      setError("Please enter the 6-digit password reset OTP from your email.");
       return;
     }
 
@@ -424,12 +420,12 @@ function Login() {
         newPassword: password
       });
       if (res.success) {
-        setSuccessMsg(res.message || "Password reset complete! Sign in with your new password.");
+        setSuccessMsg(res.message || "Password updated! Please sign in with your new password.");
         setTimeout(() => {
           setPassword("");
           setConfirmPassword("");
           setOtpCode("");
-          setOtpInfo(null);
+          setOtpSentMsg("");
           setExplicitMode("login");
         }, 1200);
       } else {
@@ -442,14 +438,6 @@ function Login() {
     }
   }
 
-  function handleFillCredentials(presetKey) {
-    const preset = ROLE_PRESETS[presetKey];
-    setActiveRole(presetKey);
-    setEmail(preset.defaultEmail);
-    setPassword(preset.defaultPass);
-    setError("");
-  }
-
   const currentConfig = ROLE_PRESETS[activeRole];
   const IconComponent = currentConfig.icon;
   const passwordsMatch = Boolean(confirmPassword && password === confirmPassword);
@@ -459,7 +447,6 @@ function Login() {
       <div className="auth-ambient-glow" />
 
       <div className={`auth-card-container ${mode === "register" ? "auth-card-wide" : ""}`}>
-        {/* ROLE SELECTOR PILLS */}
         {mode !== "forgot" && (
           <div className="role-selector-pills">
             {["PUBLIC", "AUTHORITY", "ADMIN"].map((rKey) => {
@@ -490,12 +477,11 @@ function Login() {
           </div>
         )}
 
-        {/* MAIN CYBER GLASS AUTH CARD */}
         <div className="auth-glass-card cyber-auth-card">
           <div className="panel-glow-corner corner-tl" />
           <div className="panel-glow-corner corner-br" />
 
-          {/* TOP MODE SWITCHER BAR */}
+          {/* MODE SWITCHER */}
           <div className="auth-mode-switch-bar">
             <button
               type="button"
@@ -509,14 +495,14 @@ function Login() {
               className={`mode-switch-tab ${mode === "register" ? "mode-tab-active" : ""}`}
               onClick={() => switchMode("register")}
             >
-              <ShieldCheck size={14} /> Confidential Register
+              <ShieldCheck size={14} /> Register Account
             </button>
             <button
               type="button"
               className={`mode-switch-tab ${mode === "forgot" ? "mode-tab-active" : ""}`}
               onClick={() => switchMode("forgot")}
             >
-              <KeyRound size={14} /> Reset Password
+              <KeyRound size={14} /> Forgot Password
             </button>
           </div>
 
@@ -533,21 +519,20 @@ function Login() {
               <IconComponent size={28} color={currentConfig.accent} />
             </div>
             <span className="role-clearance-badge" style={{ color: currentConfig.accent }}>
-              {mode === "forgot" ? "OTP Account Recovery" : currentConfig.badgeLabel}
+              {mode === "forgot" ? "Email Account Recovery" : currentConfig.badgeLabel}
             </span>
             <h2>
               {mode === "login" && `Sign In — ${currentConfig.title}`}
-              {mode === "register" && `Confidential Registration — ${currentConfig.title}`}
-              {mode === "forgot" && "Verify OTP & Reset Password"}
+              {mode === "register" && `Create ${currentConfig.title} Account`}
+              {mode === "forgot" && "Reset Your Password"}
             </h2>
             <p>
               {mode === "forgot"
-                ? "Recover your encrypted FlowSense account using 6-digit email OTP verification."
+                ? "Verify your identity with a 6-digit OTP sent directly to your registered email."
                 : currentConfig.subtitle}
             </p>
           </div>
 
-          {/* STATUS BANNERS */}
           {successMsg && (
             <div className="auth-success-banner">
               <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
@@ -562,168 +547,118 @@ function Login() {
             </div>
           )}
 
-          {/* ============================== */}
-          {/* VIEW 1: LOGIN WITH CAPTCHA     */}
-          {/* ============================== */}
+          {/* SIGN IN */}
           {mode === "login" && (
-            <>
-              <form onSubmit={handleLoginSubmit} className="auth-form">
-                <div className="auth-input-group">
-                  <label>Official Email Address *</label>
-                  <div className="input-with-icon">
-                    <Mail size={17} className="field-icon" />
-                    <input
-                      type="email"
-                      required
-                      placeholder={currentConfig.defaultEmail}
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
+            <form onSubmit={handleLoginSubmit} className="auth-form">
+              <div className="auth-input-group">
+                <label>Email Address *</label>
+                <div className="input-with-icon">
+                  <Mail size={17} className="field-icon" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Enter your email address"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
                 </div>
+              </div>
 
-                <div className="auth-input-group">
-                  <div className="label-between-row">
-                    <label>Password *</label>
-                    <button
-                      type="button"
-                      className="inline-link-btn"
-                      onClick={() => switchMode("forgot")}
-                    >
-                      Forgot Password?
-                    </button>
-                  </div>
-                  <div className="input-with-icon input-with-eye">
-                    <Lock size={17} className="field-icon" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      required
-                      placeholder="Enter your password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="password-eye-btn"
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label="Toggle password visibility"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
+              <div className="auth-input-group">
+                <div className="label-between-row">
+                  <label>Password *</label>
+                  <button
+                    type="button"
+                    className="inline-link-btn"
+                    onClick={() => switchMode("forgot")}
+                  >
+                    Forgot Password?
+                  </button>
                 </div>
-
-                {/* SVG SECURITY CAPTCHA CHALLENGE */}
-                <CaptchaBox
-                  svgDataUrl={captchaSvgUrl}
-                  captchaAnswer={captchaAnswer}
-                  setCaptchaAnswer={setCaptchaAnswer}
-                  onRefresh={loadCaptchaChallenge}
-                  loadingCaptcha={loadingCaptcha}
-                />
-
-                <button
-                  type="submit"
-                  className="auth-submit-btn cyber-auth-submit"
-                  disabled={loading}
-                  style={{
-                    background: `linear-gradient(135deg, ${currentConfig.accent}, #2563eb)`
-                  }}
-                >
-                  {loading ? (
-                    "Verifying CAPTCHA & MongoDB Credentials..."
-                  ) : (
-                    <>
-                      Verify &amp; Sign In <ArrowRight size={18} />
-                    </>
-                  )}
-                </button>
-              </form>
-
-              {/* SAMPLE CREDENTIALS QUICK FILL */}
-              <div className="sample-credentials-helper">
-                <span className="helper-label">
-                  <KeyRound size={13} /> Quick Fill Demo Credentials (Then Solve CAPTCHA):
-                </span>
-                <div className="credential-chips-row">
+                <div className="input-with-icon input-with-eye">
+                  <Lock size={17} className="field-icon" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
                   <button
                     type="button"
-                    className="cred-chip-btn chip-citizen"
-                    onClick={() => handleFillCredentials("PUBLIC")}
+                    className="password-eye-btn"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label="Toggle password visibility"
                   >
-                    🚗 Citizen ({ROLE_PRESETS.PUBLIC.defaultEmail})
-                  </button>
-                  <button
-                    type="button"
-                    className="cred-chip-btn chip-police"
-                    onClick={() => handleFillCredentials("AUTHORITY")}
-                  >
-                    🚔 Police ({ROLE_PRESETS.AUTHORITY.defaultEmail})
-                  </button>
-                  <button
-                    type="button"
-                    className="cred-chip-btn chip-admin"
-                    onClick={() => handleFillCredentials("ADMIN")}
-                  >
-                    🛡️ Admin ({ROLE_PRESETS.ADMIN.defaultEmail})
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
               </div>
-            </>
+
+              <CaptchaBox
+                svgDataUrl={captchaSvgUrl}
+                captchaAnswer={captchaAnswer}
+                setCaptchaAnswer={setCaptchaAnswer}
+                onRefresh={loadCaptchaChallenge}
+                loadingCaptcha={loadingCaptcha}
+              />
+
+              <button
+                type="submit"
+                className="auth-submit-btn cyber-auth-submit"
+                disabled={loading}
+                style={{
+                  background: `linear-gradient(135deg, ${currentConfig.accent}, #2563eb)`
+                }}
+              >
+                {loading ? "Signing In..." : (
+                  <>
+                    Sign In <ArrowRight size={18} />
+                  </>
+                )}
+              </button>
+            </form>
           )}
 
-          {/* =========================================== */}
-          {/* VIEW 2: CONFIDENTIAL REGISTRATION (OTP +    */}
-          {/* STRONG PASSWORD + POLICE ID + CAPTCHA)      */}
-          {/* =========================================== */}
+          {/* CONFIDENTIAL REGISTER */}
           {mode === "register" && (
             <form onSubmit={handleRegisterSubmit} className="auth-form">
-              <div className="confidential-security-strip">
-                <Lock size={14} className="text-emerald" />
-                <span>
-                  Confidential Signup: 12-Round Bcrypt • 6-Digit Email OTP • Anti-Bot CAPTCHA
-                </span>
-              </div>
-
               {activeRole === "AUTHORITY" && (
                 <div className="police-verification-notice">
                   <FileBadge2 size={18} className="text-cyan" style={{ flexShrink: 0 }} />
                   <div>
-                    <strong>Traffic Police Credential Verification Required</strong>
+                    <strong>Officer Verification Required</strong>
                     <p>
-                      Officers must provide official Badge ID, Rank, Assigned Station, and upload an
-                      ID/Warrant Card photo. Your account stays in <strong>PENDING</strong> status until an
-                      Admin approves it.
+                      Police registrations and official ID uploads are reviewed by an Administrator
+                      before command portal access is enabled.
                     </p>
                   </div>
                 </div>
               )}
 
-              {/* FULL NAME */}
               <div className="auth-input-group">
-                <label>Full Official Name *</label>
+                <label>Full Name *</label>
                 <div className="input-with-icon">
                   <User size={17} className="field-icon" />
                   <input
                     type="text"
                     required
-                    placeholder="Enter your complete name"
+                    placeholder="Enter your full name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                   />
                 </div>
               </div>
 
-              {/* EMAIL + SEND OTP BUTTON */}
               <div className="auth-input-group">
-                <label>Official Email Address &amp; 6-Digit OTP Verification *</label>
+                <label>Email Address (OTP Verification Required) *</label>
                 <div className="email-otp-action-row">
                   <div className="input-with-icon" style={{ flex: 1 }}>
                     <Mail size={17} className="field-icon" />
                     <input
                       type="email"
                       required
-                      placeholder={currentConfig.defaultEmail}
+                      placeholder="name@example.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                     />
@@ -740,48 +675,31 @@ function Login() {
                         ? "Sending..."
                         : otpCooldown > 0
                           ? `Resend (${otpCooldown}s)`
-                          : "Send OTP"}
+                          : "Send Email OTP"}
                     </span>
                   </button>
                 </div>
               </div>
 
-              {/* VIRTUAL CONFIDENTIAL OTP INBOX DISPLAY */}
-              {otpInfo && (
+              {otpSentMsg && (
                 <div className="otp-dispatch-card">
                   <div className="otp-dispatch-header">
-                    <Sparkles size={14} className="text-emerald" />
-                    <span>{otpInfo.message}</span>
+                    <Mail size={14} className="text-emerald" />
+                    <span>{otpSentMsg}</span>
                   </div>
-                  {otpInfo.otpPreview && (
-                    <div className="otp-preview-box">
-                      <div>
-                        <span className="otp-preview-label">Confidential Verification OTP:</span>
-                        <strong className="otp-preview-code">{otpInfo.otpPreview}</strong>
-                      </div>
-                      <button
-                        type="button"
-                        className="otp-autofill-btn"
-                        onClick={() => setOtpCode(otpInfo.otpPreview)}
-                      >
-                        <Copy size={12} /> Auto-fill Code
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
-              {/* OTP CODE + PHONE */}
               <div className="form-row-split">
                 <div className="auth-input-group">
-                  <label>Enter 6-Digit Email OTP *</label>
+                  <label>6-Digit Email OTP *</label>
                   <div className="input-with-icon">
                     <KeyRound size={17} className="field-icon" />
                     <input
                       type="text"
                       required
                       maxLength={6}
-                      placeholder="6-digit OTP"
+                      placeholder="Enter OTP from email"
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
                     />
@@ -802,52 +720,71 @@ function Login() {
                 </div>
               </div>
 
-              {/* CITY & STATE */}
+              {/* STATE & CITY SELECTION */}
               <div className="form-row-split">
                 <div className="auth-input-group">
-                  <label>City / District</label>
-                  <div className="input-with-icon">
-                    <MapPin size={17} className="field-icon" />
-                    <input
-                      type="text"
-                      placeholder="e.g. New Delhi, Jalandhar, Mumbai"
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
-                    />
-                  </div>
+                  <label>State / Union Territory *</label>
+                  <select
+                    value={stateName}
+                    onChange={(e) => handleStateChange(e.target.value)}
+                    className="auth-select-input"
+                    required
+                  >
+                    {INDIA_STATES_AND_UTS.map((s) => (
+                      <option key={s.state} value={s.state}>
+                        {s.state}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="auth-input-group">
-                  <label>State / UT</label>
-                  <div className="input-with-icon">
-                    <Building size={17} className="field-icon" />
-                    <input
-                      type="text"
-                      placeholder="e.g. Delhi, Punjab, Maharashtra"
-                      value={stateName}
-                      onChange={(e) => setStateName(e.target.value)}
-                    />
-                  </div>
+                  <label>City / District *</label>
+                  <select
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="auth-select-input"
+                    required
+                  >
+                    {availableCities.map((c) => (
+                      <option key={c.name} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                    <option value="Other">Other City / Town</option>
+                  </select>
                 </div>
               </div>
 
-              {/* POLICE OFFICIAL CREDENTIALS SECTION */}
+              {city === "Other" && (
+                <div className="auth-input-group">
+                  <label>Enter Your City / Town Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder={`Enter city in ${stateName}`}
+                    value={customCity}
+                    onChange={(e) => setCustomCity(e.target.value)}
+                  />
+                </div>
+              )}
+
               {activeRole === "AUTHORITY" && (
                 <div className="police-credentials-panel">
                   <div className="police-panel-title">
                     <Radio size={15} className="text-cyan" />
-                    <span>Official Traffic Police Credentials</span>
+                    <span>Official Traffic Police Details</span>
                   </div>
 
                   <div className="form-row-split">
                     <div className="auth-input-group">
-                      <label>Official Police Badge ID *</label>
+                      <label>Official Badge ID *</label>
                       <div className="input-with-icon">
                         <BadgeAlert size={17} className="field-icon" />
                         <input
                           type="text"
                           required
-                          placeholder="e.g. TP-8409"
+                          placeholder="Enter Badge Number"
                           value={badgeNumber}
                           onChange={(e) => setBadgeNumber(e.target.value)}
                         />
@@ -855,7 +792,7 @@ function Login() {
                     </div>
 
                     <div className="auth-input-group">
-                      <label>Official Police Rank *</label>
+                      <label>Rank *</label>
                       <select
                         value={rank}
                         onChange={(e) => setRank(e.target.value)}
@@ -879,7 +816,7 @@ function Login() {
                         <input
                           type="text"
                           required
-                          placeholder="e.g. Connaught Place Traffic Circle"
+                          placeholder="Station or circle name"
                           value={stationName}
                           onChange={(e) => setStationName(e.target.value)}
                         />
@@ -887,12 +824,12 @@ function Login() {
                     </div>
 
                     <div className="auth-input-group">
-                      <label>Department / Wing</label>
+                      <label>Department</label>
                       <div className="input-with-icon">
                         <Shield size={17} className="field-icon" />
                         <input
                           type="text"
-                          placeholder={currentConfig.defaultDept}
+                          placeholder={currentConfig.deptPlaceholder}
                           value={department}
                           onChange={(e) => setDepartment(e.target.value)}
                         />
@@ -900,9 +837,8 @@ function Login() {
                     </div>
                   </div>
 
-                  {/* OFFICIAL POLICE ID PROOF UPLOAD */}
                   <div className="auth-input-group">
-                    <label>Upload Official Police ID / Warrant Card Photo *</label>
+                    <label>Upload Official Police ID Card Photo *</label>
                     {!idProofImage ? (
                       <label className="id-upload-dropzone">
                         <input
@@ -915,25 +851,25 @@ function Login() {
                         <div>
                           <strong>
                             {idProofUploading
-                              ? "Compressing ID Image..."
-                              : "Click to upload Police ID Card (JPG / PNG / WEBP)"}
+                              ? "Processing ID Image..."
+                              : "Upload Police ID / Warrant Card Photo"}
                           </strong>
-                          <span>Auto-compressed and encrypted for Admin Review</span>
+                          <span>Submitted confidentially for Administrator review</span>
                         </div>
                       </label>
                     ) : (
                       <div className="id-proof-preview-card">
-                        <img src={idProofImage} alt="Uploaded Police ID" />
+                        <img src={idProofImage} alt="Uploaded ID" />
                         <div className="id-proof-meta">
                           <span className="text-emerald">
-                            <CheckCircle2 size={14} /> Official ID Photo Attached
+                            <CheckCircle2 size={14} /> ID Card Attached
                           </span>
                           <button
                             type="button"
                             className="remove-id-btn"
                             onClick={() => setIdProofImage("")}
                           >
-                            <X size={14} /> Replace Photo
+                            <X size={14} /> Remove
                           </button>
                         </div>
                       </div>
@@ -942,7 +878,6 @@ function Login() {
                 </div>
               )}
 
-              {/* ADMIN OR PUBLIC OPTIONAL FIELDS */}
               {activeRole !== "AUTHORITY" && (
                 <div className="form-row-split">
                   <div className="auth-input-group">
@@ -951,7 +886,7 @@ function Login() {
                       <Building size={17} className="field-icon" />
                       <input
                         type="text"
-                        placeholder={currentConfig.defaultDept}
+                        placeholder={currentConfig.deptPlaceholder}
                         value={department}
                         onChange={(e) => setDepartment(e.target.value)}
                       />
@@ -960,13 +895,13 @@ function Login() {
 
                   {activeRole === "ADMIN" && (
                     <div className="auth-input-group">
-                      <label>Admin Clearance ID *</label>
+                      <label>Administrator Clearance ID *</label>
                       <div className="input-with-icon">
                         <BadgeAlert size={17} className="field-icon" />
                         <input
                           type="text"
                           required
-                          placeholder={currentConfig.badgePlaceholder}
+                          placeholder="Clearance ID"
                           value={badgeNumber}
                           onChange={(e) => setBadgeNumber(e.target.value)}
                         />
@@ -976,16 +911,15 @@ function Login() {
                 </div>
               )}
 
-              {/* STRONG HARD PASSWORD + CONFIRM */}
               <div className="form-row-split">
                 <div className="auth-input-group">
-                  <label>Hard Security Password *</label>
+                  <label>Password *</label>
                   <div className="input-with-icon input-with-eye">
                     <Lock size={17} className="field-icon" />
                     <input
                       type={showPassword ? "text" : "password"}
                       required
-                      placeholder="Min 8 chars, A-Z, 0-9, !@#"
+                      placeholder="Strong password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                     />
@@ -1007,7 +941,7 @@ function Login() {
                         className="match-indicator"
                         style={{ color: passwordsMatch ? "#10b981" : "#ef4444" }}
                       >
-                        {passwordsMatch ? " ✓ Matched" : " ✗ Mismatch"}
+                        {passwordsMatch ? " Matched" : " Mismatch"}
                       </span>
                     )}
                   </label>
@@ -1016,7 +950,7 @@ function Login() {
                     <input
                       type={showPassword ? "text" : "password"}
                       required
-                      placeholder="Re-enter hard password"
+                      placeholder="Confirm password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                     />
@@ -1026,7 +960,6 @@ function Login() {
 
               <PasswordStrengthMeter password={password} />
 
-              {/* SECURITY CAPTCHA FOR REGISTRATION */}
               <CaptchaBox
                 svgDataUrl={captchaSvgUrl}
                 captchaAnswer={captchaAnswer}
@@ -1043,23 +976,16 @@ function Login() {
                   background: `linear-gradient(135deg, ${currentConfig.accent}, #2563eb)`
                 }}
               >
-                {loading ? (
-                  "Encrypting & Saving Account to MongoDB..."
-                ) : (
-                  <>
-                    {activeRole === "AUTHORITY"
-                      ? "Submit Police Registration for Admin Verification"
-                      : "Create Confidential Account in MongoDB"}
-                    <ArrowRight size={18} />
-                  </>
-                )}
+                {loading
+                  ? "Creating Account..."
+                  : activeRole === "AUTHORITY"
+                    ? "Submit Police Application"
+                    : "Create Verified Account"}
               </button>
             </form>
           )}
 
-          {/* =========================================== */}
-          {/* VIEW 3: FORGOT PASSWORD RESET WITH OTP      */}
-          {/* =========================================== */}
+          {/* FORGOT PASSWORD */}
           {mode === "forgot" && (
             <form onSubmit={handleForgotResetSubmit} className="auth-form">
               <div className="auth-input-group">
@@ -1093,39 +1019,24 @@ function Login() {
                 </div>
               </div>
 
-              {otpInfo && (
+              {otpSentMsg && (
                 <div className="otp-dispatch-card">
                   <div className="otp-dispatch-header">
-                    <Clock size={14} className="text-amber" />
-                    <span>{otpInfo.message}</span>
+                    <Mail size={14} className="text-emerald" />
+                    <span>{otpSentMsg}</span>
                   </div>
-                  {otpInfo.otpPreview && (
-                    <div className="otp-preview-box">
-                      <div>
-                        <span className="otp-preview-label">Reset Verification OTP:</span>
-                        <strong className="otp-preview-code">{otpInfo.otpPreview}</strong>
-                      </div>
-                      <button
-                        type="button"
-                        className="otp-autofill-btn"
-                        onClick={() => setOtpCode(otpInfo.otpPreview)}
-                      >
-                        <Copy size={12} /> Auto-fill
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
               <div className="auth-input-group">
-                <label>6-Digit Recovery OTP *</label>
+                <label>6-Digit Email OTP *</label>
                 <div className="input-with-icon">
                   <KeyRound size={17} className="field-icon" />
                   <input
                     type="text"
                     required
                     maxLength={6}
-                    placeholder="Enter 6-digit OTP"
+                    placeholder="Enter 6-digit OTP from email"
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
                   />
@@ -1134,13 +1045,13 @@ function Login() {
 
               <div className="form-row-split">
                 <div className="auth-input-group">
-                  <label>New Hard Password *</label>
+                  <label>New Strong Password *</label>
                   <div className="input-with-icon input-with-eye">
                     <Lock size={17} className="field-icon" />
                     <input
                       type={showPassword ? "text" : "password"}
                       required
-                      placeholder="New hard password"
+                      placeholder="New strong password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                     />
@@ -1161,7 +1072,7 @@ function Login() {
                     <input
                       type={showPassword ? "text" : "password"}
                       required
-                      placeholder="Re-enter new password"
+                      placeholder="Confirm new password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                     />
@@ -1177,7 +1088,7 @@ function Login() {
                 disabled={loading}
                 style={{ background: "linear-gradient(135deg, #06b6d4, #6366f1)" }}
               >
-                {loading ? "Resetting Encrypted Password..." : "Verify OTP & Update Password"}
+                {loading ? "Updating Password..." : "Verify Email OTP & Reset Password"}
               </button>
             </form>
           )}
@@ -1190,7 +1101,7 @@ function Login() {
                 className="toggle-auth-mode-btn"
                 onClick={() => switchMode("register")}
               >
-                New to FlowSense? Register confidentially with 6-Digit OTP Verification →
+                New to FlowSense? Create an account with Email OTP →
               </button>
             ) : (
               <button
@@ -1198,7 +1109,7 @@ function Login() {
                 className="toggle-auth-mode-btn"
                 onClick={() => switchMode("login")}
               >
-                ← Back to Sign In with Email &amp; CAPTCHA
+                ← Back to Sign In
               </button>
             )}
           </div>

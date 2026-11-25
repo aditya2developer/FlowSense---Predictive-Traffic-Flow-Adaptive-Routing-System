@@ -113,7 +113,18 @@ const PAN_INDIA_COORDINATES = {
   "agartala": { lat: 23.8315, lon: 91.2868, name: "Agartala", state: "Tripura" },
   "aizawl": { lat: 23.7271, lon: 92.7176, name: "Aizawl", state: "Mizoram" },
   "kohima": { lat: 25.6751, lon: 94.1086, name: "Kohima", state: "Nagaland" },
-  "itanagar": { lat: 27.0844, lon: 93.6053, name: "Itanagar", state: "Arunachal Pradesh" }
+  "itanagar": { lat: 27.0844, lon: 93.6053, name: "Itanagar", state: "Arunachal Pradesh" },
+
+  // Remaining Union Territories & Key Hubs
+  "leh": { lat: 34.1526, lon: 77.5771, name: "Leh", state: "Ladakh" },
+  "ladakh": { lat: 34.1526, lon: 77.5771, name: "Leh (Ladakh)", state: "Ladakh" },
+  "puducherry": { lat: 11.9416, lon: 79.8083, name: "Puducherry", state: "Puducherry" },
+  "pondicherry": { lat: 11.9416, lon: 79.8083, name: "Puducherry", state: "Puducherry" },
+  "port blair": { lat: 11.6234, lon: 92.7265, name: "Sri Vijaya Puram (Port Blair)", state: "Andaman & Nicobar Islands" },
+  "daman": { lat: 20.3974, lon: 72.8328, name: "Daman", state: "Dadra & Nagar Haveli and Daman & Diu" },
+  "silvassa": { lat: 20.2763, lon: 73.0083, name: "Silvassa", state: "Dadra & Nagar Haveli and Daman & Diu" },
+  "kavaratti": { lat: 10.5593, lon: 72.6358, name: "Kavaratti", state: "Lakshadweep" },
+  "manali": { lat: 32.2432, lon: 77.1892, name: "Manali", state: "Himachal Pradesh" }
 };
 
 function wmoCodeToCondition(code) {

@@ -5,6 +5,7 @@ const OtpRecord = require("../models/OtpRecord");
 const Incident = require("../models/Incident");
 const MemoryStore = require("../utils/memoryStore");
 const { authenticate, JWT_SECRET } = require("../middleware/auth");
+const { sendOtpEmail } = require("../utils/emailService");
 const {
   validateStrongPassword,
   generateCaptchaChallenge,
@@ -17,55 +18,26 @@ const {
 
 const router = express.Router();
 
-// Pre-seeded Demo Accounts for Evaluator Convenience
-const DEMO_ACCOUNTS = [
-  {
+// Optional initial Admin bootstrap strictly via environment variables (no hardcoded credentials)
+function getEnvBootstrapAdmin() {
+  const email = (process.env.ADMIN_BOOTSTRAP_EMAIL || "").trim().toLowerCase();
+  const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || "";
+  if (!email || !password) return null;
+  return {
     role: "ADMIN",
-    roleLabel: "Main System Administrator",
-    email: "admin@flowsense.gov.in",
-    password: "admin",
-    name: "Aditya Kr Singh",
+    email,
+    password,
+    name: process.env.ADMIN_BOOTSTRAP_NAME || "Chief Systems Administrator",
     department: "Smart Mobility Headquarters",
     badgeNumber: "SYS-ADMIN-01",
-    rank: "Chief Systems Architect",
-    stationName: "Central Command HQ, Delhi",
+    rank: "Chief Administrator",
+    stationName: "Central Command HQ",
     city: "Delhi NCR",
-    state: "Delhi",
+    state: "Delhi (NCT)",
     isEmailVerified: true,
-    verificationStatus: "VERIFIED",
-    description: "Full system oversight, police ID verification, database control, and global overrides."
-  },
-  {
-    role: "AUTHORITY",
-    roleLabel: "Traffic Enforcement & Police Dispatch",
-    email: "police@flowsense.gov.in",
-    password: "police",
-    name: "Inspector Rajesh Sharma",
-    department: "City Traffic Police & Dispatch Wing",
-    badgeNumber: "TP-8409",
-    rank: "Traffic Inspector",
-    stationName: "Connaught Place Traffic Circle",
-    city: "Delhi NCR",
-    state: "Delhi",
-    isEmailVerified: true,
-    verificationStatus: "VERIFIED",
-    description: "Emergency green-corridor dispatch, hazard resolution, and speed radar telemetry."
-  },
-  {
-    role: "PUBLIC",
-    roleLabel: "Commuter & Citizen",
-    email: "citizen@flowsense.in",
-    password: "citizen",
-    name: "Priya Verma",
-    department: "Daily Commuter (Car / EV Transit)",
-    badgeNumber: "CITIZEN-001",
-    city: "Jalandhar",
-    state: "Punjab",
-    isEmailVerified: true,
-    verificationStatus: "VERIFIED",
-    description: "Route prediction, stability comparison, community reporting with photos, and alerts."
-  }
-];
+    verificationStatus: "VERIFIED"
+  };
+}
 
 function formatSafeUser(user) {
   const u = typeof user.toObject === "function" ? user.toObject() : { ...user };
@@ -89,6 +61,10 @@ function formatSafeUser(user) {
     isEmailVerified: Boolean(u.isEmailVerified),
     verificationStatus: u.verificationStatus || "VERIFIED",
     verificationNotes: u.verificationNotes || "",
+    pendingProfileUpdates: u.pendingProfileUpdates || null,
+    profileUpdateStatus: u.profileUpdateStatus || "NONE",
+    profileUpdateNotes: u.profileUpdateNotes || "",
+    profileUpdateRequestedAt: u.profileUpdateRequestedAt || null,
     verifiedBy: u.verifiedBy || "",
     verifiedAt: u.verifiedAt || null,
     lastLoginAt: u.lastLoginAt || null,
@@ -145,12 +121,12 @@ async function verifyStoredOTP(email, otpCode, purpose) {
 }
 
 // ==========================================
-// GET /api/auth/demo-users
+// GET /api/auth/demo-users (Protected / Disabled for public security)
 // ==========================================
 router.get("/demo-users", (req, res) => {
-  res.json({
-    success: true,
-    data: DEMO_ACCOUNTS
+  return res.status(403).json({
+    success: false,
+    message: "Credential discovery endpoint is disabled for security."
   });
 });
 
@@ -170,7 +146,7 @@ router.get("/captcha", (req, res) => {
 
 // ==========================================
 // POST /api/auth/send-otp
-// Real-time 6-digit OTP generator & dispatcher
+// Real-time 6-digit OTP generator & confidential Email dispatcher
 // ==========================================
 router.post("/send-otp", async (req, res) => {
   try {
@@ -184,34 +160,58 @@ router.post("/send-otp", async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
 
-    if (purpose === "REGISTER" && global.isMongoConnected) {
-      try {
-        const existing = await User.findOne({ email: cleanEmail });
-        if (existing) {
-          return res.status(400).json({
-            success: false,
-            message: "This email is already registered in MongoDB. Please sign in instead."
-          });
-        }
-      } catch (e) {}
+    if (purpose === "REGISTER") {
+      if (global.isMongoConnected) {
+        try {
+          const existing = await User.findOne({ email: cleanEmail });
+          if (existing) {
+            return res.status(400).json({
+              success: false,
+              message: "This email is already registered. Please sign in or reset your password."
+            });
+          }
+        } catch (e) {}
+      } else if (MemoryStore.findUserByEmail(cleanEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: "This email is already registered. Please sign in or reset your password."
+        });
+      }
     }
 
-    if ((purpose === "PASSWORD_RESET") && global.isMongoConnected) {
-      try {
-        const existing = await User.findOne({ email: cleanEmail });
-        if (!existing) {
-          return res.status(404).json({
-            success: false,
-            message: "No account found with this email address."
-          });
-        }
-      } catch (e) {}
+    if (purpose === "PASSWORD_RESET") {
+      let existingUser = null;
+      if (global.isMongoConnected) {
+        try {
+          existingUser = await User.findOne({ email: cleanEmail });
+        } catch (e) {}
+      }
+      if (!existingUser) {
+        existingUser = MemoryStore.findUserByEmail(cleanEmail);
+      }
+      if (!existingUser) {
+        return res.status(404).json({
+          success: false,
+          message: "No account found with this email address."
+        });
+      }
     }
 
     const otp = generateSecureOTP();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Store in MongoDB OtpRecord + Memory cache
+    // Dispatch actual OTP email before confirming
+    const emailResult = await sendOtpEmail({ to: cleanEmail, otp, purpose });
+    if (!emailResult.sent) {
+      return res.status(503).json({
+        success: false,
+        message:
+          emailResult.reason ||
+          "Unable to deliver verification email at this moment. Please try again later."
+      });
+    }
+
+    // Store OTP strictly on backend (MongoDB + Memory cache); NEVER expose in response
     if (global.isMongoConnected) {
       try {
         await OtpRecord.deleteMany({ email: cleanEmail, purpose });
@@ -222,25 +222,21 @@ router.post("/send-otp", async (req, res) => {
           expiresAt
         });
       } catch (e) {
-        // Fallback already saved below
+        // Memory cache saved below
       }
     }
     saveMemoryOTP(cleanEmail, otp, purpose);
 
-    console.log(`🔐 [OTP DISPATCH] Purpose: ${purpose} | Email: ${cleanEmail} | OTP: ${otp}`);
-
     return res.json({
       success: true,
-      message: `A confidential 6-digit OTP has been dispatched to ${cleanEmail} (valid for 5 minutes).`,
-      deliveryMode: process.env.SMTP_HOST ? "SMTP_EMAIL" : "LIVE_VIRTUAL_INBOX",
-      otpPreview: process.env.SMTP_HOST ? undefined : otp,
+      message: `A 6-digit verification code has been emailed to ${cleanEmail}. Please check your inbox and spam folder.`,
       expiresInSeconds: 300
     });
   } catch (error) {
     console.error("Send OTP error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to generate and dispatch OTP."
+      message: "Failed to generate and send email OTP."
     });
   }
 });
@@ -285,23 +281,23 @@ router.post("/login", async (req, res) => {
       user = MemoryStore.findUserByEmail(cleanEmail);
     }
 
-    // Auto-seed demo accounts on first login if missing
+    // Optional environment-configured Admin bootstrap on brand-new deployments
     if (!user) {
-      const demoMatch = DEMO_ACCOUNTS.find((d) => d.email.toLowerCase() === cleanEmail);
-      if (demoMatch && password === demoMatch.password) {
+      const bootstrapAdmin = getEnvBootstrapAdmin();
+      if (bootstrapAdmin && bootstrapAdmin.email === cleanEmail && password === bootstrapAdmin.password) {
         if (global.isMongoConnected) {
           try {
             user = new User({
-              name: demoMatch.name,
-              email: demoMatch.email,
-              password: demoMatch.password,
-              role: demoMatch.role,
-              department: demoMatch.department,
-              badgeNumber: demoMatch.badgeNumber,
-              rank: demoMatch.rank || "",
-              stationName: demoMatch.stationName || "",
-              city: demoMatch.city || "",
-              state: demoMatch.state || "",
+              name: bootstrapAdmin.name,
+              email: bootstrapAdmin.email,
+              password: bootstrapAdmin.password,
+              role: "ADMIN",
+              department: bootstrapAdmin.department,
+              badgeNumber: bootstrapAdmin.badgeNumber,
+              rank: bootstrapAdmin.rank,
+              stationName: bootstrapAdmin.stationName,
+              city: bootstrapAdmin.city,
+              state: bootstrapAdmin.state,
               isEmailVerified: true,
               verificationStatus: "VERIFIED"
             });
@@ -312,7 +308,9 @@ router.post("/login", async (req, res) => {
         } else {
           user = MemoryStore.findUserByEmail(cleanEmail);
         }
-      } else {
+      }
+
+      if (!user) {
         return res.status(401).json({
           success: false,
           message: "Invalid email or password."
@@ -559,7 +557,7 @@ router.get("/me", authenticate, (req, res) => {
 
 // ==========================================
 // PUT /api/auth/profile
-// Update User Profile Details & Upload Profile Avatar Photo
+// All user data updates go into Admin verification queue (unless user is ADMIN)
 // ==========================================
 router.put("/profile", authenticate, async (req, res) => {
   try {
@@ -586,10 +584,33 @@ router.put("/profile", authenticate, async (req, res) => {
       }
     });
 
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No profile changes were provided."
+      });
+    }
+
+    const isDirectAdminUpdate = req.user.role === "ADMIN";
+
     if (global.isMongoConnected) {
+      const dbPayload = isDirectAdminUpdate
+        ? { $set: updates }
+        : {
+            $set: {
+              pendingProfileUpdates: {
+                ...(req.user.pendingProfileUpdates || {}),
+                ...updates
+              },
+              profileUpdateStatus: "PENDING",
+              profileUpdateNotes: "",
+              profileUpdateRequestedAt: new Date()
+            }
+          };
+
       const updatedUser = await User.findByIdAndUpdate(
         req.user._id,
-        { $set: updates },
+        dbPayload,
         { new: true }
       ).select("-password");
 
@@ -599,29 +620,39 @@ router.put("/profile", authenticate, async (req, res) => {
 
       return res.json({
         success: true,
-        message: "Profile updated securely in MongoDB Atlas!",
+        requiresVerification: !isDirectAdminUpdate,
+        message: isDirectAdminUpdate
+          ? "Administrator profile updated."
+          : "Your profile changes have been submitted to the Administrator for verification.",
         user: formatSafeUser(updatedUser)
       });
     }
 
-    const updatedMem = MemoryStore.updateUserProfile(req.user._id, updates);
+    const updatedMem = isDirectAdminUpdate
+      ? MemoryStore.verifyProfileUpdate(req.user._id, "APPROVED", req.user.name, "") ||
+        MemoryStore.updateUserProfile(req.user._id, updates)
+      : MemoryStore.requestProfileUpdate(req.user._id, updates);
+
     return res.json({
       success: true,
-      message: "Profile updated in active session.",
-      user: formatSafeUser(updatedMem || { ...req.user, ...updates })
+      requiresVerification: !isDirectAdminUpdate,
+      message: isDirectAdminUpdate
+        ? "Administrator profile updated."
+        : "Your profile changes have been submitted to the Administrator for verification.",
+      user: formatSafeUser(updatedMem || req.user)
     });
   } catch (error) {
     console.error("Profile update error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to update profile."
+      message: "Failed to submit profile update."
     });
   }
 });
 
 // ==========================================
 // POST /api/auth/change-password
-// Confidential Password Change with Current Password + 6-Digit OTP + Hard Password Policy
+// Confidential Password Change with Current Password + Email OTP + Strong Password Policy
 // ==========================================
 router.post("/change-password", authenticate, async (req, res) => {
   try {
@@ -630,11 +661,10 @@ router.post("/change-password", authenticate, async (req, res) => {
     if (!currentPassword || !newPassword || !otpCode) {
       return res.status(400).json({
         success: false,
-        message: "Current password, 6-digit verification OTP, and new password are all required."
+        message: "Current password, 6-digit email OTP, and new password are all required."
       });
     }
 
-    // Validate new strong password
     const pwdCheck = validateStrongPassword(newPassword);
     if (!pwdCheck.valid) {
       return res.status(400).json({
@@ -643,7 +673,6 @@ router.post("/change-password", authenticate, async (req, res) => {
       });
     }
 
-    // Verify OTP
     const otpCheck = await verifyStoredOTP(req.user.email, otpCode, "PASSWORD_CHANGE");
     if (!otpCheck.valid) {
       return res.status(400).json({
@@ -672,13 +701,21 @@ router.post("/change-password", authenticate, async (req, res) => {
 
       return res.json({
         success: true,
-        message: "Password changed and re-encrypted in MongoDB Atlas successfully!"
+        message: "Password changed and secured successfully!"
       });
     }
 
-    return res.status(503).json({
-      success: false,
-      message: "Database connection required for password modification."
+    const memUser = MemoryStore.findUserByEmail(req.user.email);
+    if (!memUser || !(await memUser.comparePassword(currentPassword))) {
+      return res.status(401).json({
+        success: false,
+        message: "Current password is incorrect."
+      });
+    }
+    MemoryStore.updateUserPassword(req.user.email, newPassword);
+    return res.json({
+      success: true,
+      message: "Password changed and secured successfully!"
     });
   } catch (error) {
     console.error("Password change error:", error);
@@ -691,7 +728,7 @@ router.post("/change-password", authenticate, async (req, res) => {
 
 // ==========================================
 // POST /api/auth/reset-password
-// Forgot Password flow using OTP
+// Forgot Password flow using Email OTP (usable from Login or Profile)
 // ==========================================
 router.post("/reset-password", async (req, res) => {
   try {
@@ -699,7 +736,7 @@ router.post("/reset-password", async (req, res) => {
     if (!email || !otpCode || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: "Email, 6-digit OTP, and new password are required."
+        message: "Email, 6-digit email OTP, and new password are required."
       });
     }
 
@@ -732,7 +769,14 @@ router.post("/reset-password", async (req, res) => {
       });
     }
 
-    return res.status(503).json({ success: false, message: "Database unavailable." });
+    const updatedMem = MemoryStore.updateUserPassword(cleanEmail, newPassword);
+    if (!updatedMem) {
+      return res.status(404).json({ success: false, message: "Account not found." });
+    }
+    return res.json({
+      success: true,
+      message: "Password reset complete! You can now sign in with your new password."
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Password reset failed." });
   }

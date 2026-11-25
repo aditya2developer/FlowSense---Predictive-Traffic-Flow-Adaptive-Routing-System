@@ -93,6 +93,23 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    pendingProfileUpdates: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
+    },
+    profileUpdateStatus: {
+      type: String,
+      enum: ["NONE", "PENDING", "APPROVED", "REJECTED"],
+      default: "NONE"
+    },
+    profileUpdateNotes: {
+      type: String,
+      default: ""
+    },
+    profileUpdateRequestedAt: {
+      type: Date,
+      default: null
+    },
     lastLoginAt: {
       type: Date,
       default: null

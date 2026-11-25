@@ -1,5 +1,6 @@
 import { NavLink, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useCity } from "../context/CityContext";
 import {
   Shield,
   Radio,
@@ -14,12 +15,14 @@ import {
   UserPlus,
   PhoneCall,
   ShieldCheck,
-  Clock
+  Clock,
+  MapPin
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
 function Navbar() {
   const { user, role, isAdmin, isAuthority, logout, isAuthenticated } = useAuth();
+  const { activeCity, openCityModal } = useCity();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -59,11 +62,11 @@ function Navbar() {
           </div>
           <div className="brand-text-ambient">
             <span className="brand-title-ambient">FlowSense</span>
-            <span className="brand-badge-ambient">Real-Time Mobility Intelligence</span>
+            <span className="brand-badge-ambient">Live India Mobility</span>
           </div>
         </NavLink>
 
-        {/* ROLE-AWARE NAVIGATION LINKS */}
+        {/* NAVIGATION LINKS */}
         <nav className="nav-links-ambient">
           <NavLink
             to="/"
@@ -77,15 +80,7 @@ function Navbar() {
             to="/dashboard"
             className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
           >
-            <BarChart3 size={16} /> <span>Analytics &amp; Heatmap</span>
-          </NavLink>
-
-          <NavLink
-            to="/database"
-            className={({ isActive }) => `ambient-nav-link link-database ${isActive ? "active-ambient-emerald" : ""}`}
-            title="Live MongoDB Atlas Collections & Documents Explorer"
-          >
-            <Database size={16} /> <span>MongoDB Platform</span>
+            <BarChart3 size={16} /> <span>Live Analytics</span>
           </NavLink>
 
           {isAuthority && (
@@ -98,12 +93,20 @@ function Navbar() {
           )}
 
           {isAdmin && (
-            <NavLink
-              to="/admin"
-              className={({ isActive }) => `ambient-nav-link link-admin ${isActive ? "active-ambient-purple" : ""}`}
-            >
-              <Shield size={16} /> <span>Admin Console</span>
-            </NavLink>
+            <>
+              <NavLink
+                to="/admin"
+                className={({ isActive }) => `ambient-nav-link link-admin ${isActive ? "active-ambient-purple" : ""}`}
+              >
+                <Shield size={16} /> <span>Admin Console</span>
+              </NavLink>
+              <NavLink
+                to="/database"
+                className={({ isActive }) => `ambient-nav-link link-database ${isActive ? "active-ambient-emerald" : ""}`}
+              >
+                <Database size={16} /> <span>Data Explorer</span>
+              </NavLink>
+            </>
           )}
 
           <NavLink
@@ -117,12 +120,23 @@ function Navbar() {
             to="/contact"
             className={({ isActive }) => `ambient-nav-link ${isActive ? "active-ambient" : ""}`}
           >
-            <PhoneCall size={16} /> <span>Helpline (112 / 1033)</span>
+            <PhoneCall size={16} /> <span>Helplines</span>
           </NavLink>
         </nav>
 
-        {/* AUTHENTICATION / PROFILE SECTION */}
-        <div className="navbar-user-section" ref={dropdownRef}>
+        {/* CITY SWITCHER & AUTHENTICATION */}
+        <div className="navbar-user-section" ref={dropdownRef} style={{ gap: 10 }}>
+          <button
+            type="button"
+            className="nav-city-selector-pill"
+            onClick={openCityModal}
+            title="Switch active State & City across India"
+          >
+            <MapPin size={14} className="text-cyan" />
+            <span>{activeCity}</span>
+            <ChevronDown size={13} />
+          </button>
+
           {isAuthenticated && user ? (
             <div className="user-dropdown-container">
               <button
@@ -139,17 +153,7 @@ function Navbar() {
                     {role === "PUBLIC" && <User size={14} />}
                   </>
                 )}
-                <span className="role-pill-text">
-                  {user.name?.split(" ")[0]} (
-                  {role === "ADMIN"
-                    ? "Admin"
-                    : role === "AUTHORITY"
-                      ? verificationStatus === "PENDING"
-                        ? "Police Pending"
-                        : "Traffic Police"
-                      : "Commuter"}
-                  )
-                </span>
+                <span className="role-pill-text">{user.name?.split(" ")[0]}</span>
                 <ChevronDown size={14} className="dropdown-caret" />
               </button>
 
@@ -159,21 +163,18 @@ function Navbar() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
                       <strong>{user.name}</strong>
                       {verificationStatus === "VERIFIED" ? (
-                        <span className="nav-ver-badge ok" title="Verified Account">
+                        <span className="nav-ver-badge ok">
                           <ShieldCheck size={12} /> Verified
                         </span>
                       ) : (
-                        <span className="nav-ver-badge pending" title="Awaiting Admin Review">
+                        <span className="nav-ver-badge pending">
                           <Clock size={12} /> {verificationStatus}
                         </span>
                       )}
                     </div>
                     <span>{user.email}</span>
-                    <span className="dropdown-dept">
-                      {user.department || (role === "ADMIN" ? "HQ Administrator" : role === "AUTHORITY" ? "Traffic Police" : "Citizen")}
-                    </span>
-                    {user.badgeNumber && (
-                      <span className="dropdown-badge-num">Badge: {user.badgeNumber}</span>
+                    {user.city && (
+                      <span className="dropdown-dept">{user.city}{user.state ? `, ${user.state}` : ""}</span>
                     )}
                   </div>
 
@@ -187,21 +188,13 @@ function Navbar() {
                     <User size={15} /> My Profile &amp; Security
                   </Link>
 
-                  <Link
-                    to="/database"
-                    className="dropdown-item"
-                    onClick={() => setDropdownOpen(false)}
-                  >
-                    <Database size={15} /> MongoDB Platform Explorer
-                  </Link>
-
                   {isAdmin && (
                     <Link
                       to="/admin"
                       className="dropdown-item"
                       onClick={() => setDropdownOpen(false)}
                     >
-                      <Shield size={15} /> Open Admin Console
+                      <Shield size={15} /> Admin Console
                     </Link>
                   )}
 
@@ -211,7 +204,7 @@ function Navbar() {
                       className="dropdown-item"
                       onClick={() => setDropdownOpen(false)}
                     >
-                      <Radio size={15} /> Open Police Command Hub
+                      <Radio size={15} /> Police Command
                     </Link>
                   )}
 

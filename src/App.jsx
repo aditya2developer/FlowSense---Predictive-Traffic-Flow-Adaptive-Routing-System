@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { CityProvider } from "./context/CityContext";
 import Navbar from "./components/Navbar";
+import CitySelectorModal from "./components/CitySelectorModal";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import IncidentReport from "./pages/IncidentReport";
@@ -17,7 +19,7 @@ import "./App.css";
 function ProtectedUserRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
   if (loading) {
-    return <div className="page-loading-state">Loading Profile Session...</div>;
+    return <div className="page-loading-state">Loading Profile...</div>;
   }
   if (!isAuthenticated) {
     return <Navigate to="/login?redirect=/profile" replace />;
@@ -28,7 +30,7 @@ function ProtectedUserRoute({ children }) {
 function ProtectedAuthorityRoute({ children }) {
   const { isAuthority, isAuthenticated, loading } = useAuth();
   if (loading) {
-    return <div className="page-loading-state">Authenticating Police Credentials...</div>;
+    return <div className="page-loading-state">Checking Police Access...</div>;
   }
   if (!isAuthenticated || !isAuthority) {
     return <Navigate to="/login?role=AUTHORITY&redirect=/authority" replace />;
@@ -39,7 +41,7 @@ function ProtectedAuthorityRoute({ children }) {
 function ProtectedAdminRoute({ children }) {
   const { isAdmin, isAuthenticated, loading } = useAuth();
   if (loading) {
-    return <div className="page-loading-state">Authenticating Root Administrator...</div>;
+    return <div className="page-loading-state">Checking Administrator Access...</div>;
   }
   if (!isAuthenticated || !isAdmin) {
     return <Navigate to="/login?role=ADMIN&redirect=/admin" replace />;
@@ -50,80 +52,88 @@ function ProtectedAdminRoute({ children }) {
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <div className="flowsense-app">
-          <Navbar />
+      <CityProvider>
+        <BrowserRouter>
+          <div className="flowsense-app">
+            <Navbar />
+            <CitySelectorModal />
 
-          {/* GLOBAL EMERGENCY ALERT MODAL — Police Only Hazard Dispatch */}
-          <EmergencyAlertModal />
+            {/* GLOBAL EMERGENCY ALERT MODAL — Police Hazard Dispatch */}
+            <EmergencyAlertModal />
 
-          {/* SMART CITY AI COPILOT CHATBOT */}
-          <FlowSenseChatbot />
+            {/* SMART CITY ASSISTANT */}
+            <FlowSenseChatbot />
 
-          <main className="flowsense-main">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/database" element={<DatabasePlatform />} />
-              <Route path="/report" element={<IncidentReport />} />
-              <Route path="/contact" element={<ContactHelpline />} />
+            <main className="flowsense-main">
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route
+                  path="/database"
+                  element={
+                    <ProtectedAdminRoute>
+                      <DatabasePlatform />
+                    </ProtectedAdminRoute>
+                  }
+                />
+                <Route path="/report" element={<IncidentReport />} />
+                <Route path="/contact" element={<ContactHelpline />} />
 
-              <Route
-                path="/profile"
-                element={
-                  <ProtectedUserRoute>
-                    <Profile />
-                  </ProtectedUserRoute>
-                }
-              />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedUserRoute>
+                      <Profile />
+                    </ProtectedUserRoute>
+                  }
+                />
 
-              {/* STRICTLY ROLE-PROTECTED PORTALS */}
-              <Route
-                path="/authority"
-                element={
-                  <ProtectedAuthorityRoute>
-                    <AuthorityPortal />
-                  </ProtectedAuthorityRoute>
-                }
-              />
-              <Route
-                path="/admin"
-                element={
-                  <ProtectedAdminRoute>
-                    <AdminPortal />
-                  </ProtectedAdminRoute>
-                }
-              />
+                <Route
+                  path="/authority"
+                  element={
+                    <ProtectedAuthorityRoute>
+                      <AuthorityPortal />
+                    </ProtectedAuthorityRoute>
+                  }
+                />
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedAdminRoute>
+                      <AdminPortal />
+                    </ProtectedAdminRoute>
+                  }
+                />
 
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </main>
 
-          <footer className="flowsense-footer-ambient">
-            <div className="footer-inner-ambient">
-              <div className="footer-brand-ambient">
-                <span className="brand-logo-icon">🚦</span>
-                <div>
-                  <strong>FlowSense National Smart Mobility</strong>
-                  <p>Pan-India Predictive Traffic Flow &amp; Adaptive Emergency Routing Platform</p>
+            <footer className="flowsense-footer-ambient">
+              <div className="footer-inner-ambient">
+                <div className="footer-brand-ambient">
+                  <span className="brand-logo-icon">🚦</span>
+                  <div>
+                    <strong>FlowSense Smart Mobility</strong>
+                    <p>Pan-India Real-Time Traffic Navigation &amp; Road Safety Platform</p>
+                  </div>
+                </div>
+                <div className="footer-links-ambient">
+                  <Link to="/">Route Finder</Link>
+                  <Link to="/dashboard">Live Analytics</Link>
+                  <Link to="/report">Report Hazard</Link>
+                  <Link to="/contact">Emergency Helplines (112 / 1033)</Link>
+                  <Link to="/profile">My Profile</Link>
+                </div>
+                <div className="footer-meta-ambient">
+                  <p>© {new Date().getFullYear()} FlowSense Platform. Coverage across all 28 States &amp; 8 UTs.</p>
                 </div>
               </div>
-              <div className="footer-links-ambient">
-                <Link to="/database">MongoDB Platform</Link>
-                <Link to="/profile">User Profile</Link>
-                <Link to="/login?role=ADMIN">Admin Console</Link>
-                <Link to="/login?role=AUTHORITY">Police Command</Link>
-                <Link to="/report">Report Hazard</Link>
-                <Link to="/contact">Helpline &amp; Contact (112 / 1033)</Link>
-              </div>
-              <div className="footer-meta-ambient">
-                <p>© {new Date().getFullYear()} FlowSense Platform. Built for Smart Cities Mission.</p>
-              </div>
-            </div>
-          </footer>
-        </div>
-      </BrowserRouter>
+            </footer>
+          </div>
+        </BrowserRouter>
+      </CityProvider>
     </AuthProvider>
   );
 }

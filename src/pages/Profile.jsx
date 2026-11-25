@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { fetchMyReports, sendOtp } from "../api";
+import { fetchMyReports, sendOtp, resetUserPassword } from "../api";
+import { INDIA_STATES_AND_UTS } from "../utils/indiaLocations";
 import { compressImageFile } from "../utils/imageHelper";
 import { evaluatePasswordStrength } from "../utils/passwordStrength";
 import PasswordStrengthMeter from "../components/PasswordStrengthMeter";
@@ -22,7 +23,6 @@ import {
   Lock,
   KeyRound,
   Send,
-  Copy,
   Save,
   Trash2,
   FileText,
@@ -36,19 +36,17 @@ import {
 } from "lucide-react";
 
 function Profile() {
-  const { user, updateProfile, changePassword, role } = useAuth();
+  const { user, updateProfile, changePassword, refreshUser, role } = useAuth();
 
   const [activeTab, setActiveTab] = useState("details"); // 'details' | 'security' | 'reports'
   const [feedback, setFeedback] = useState({ type: "", text: "" });
-
-  // Avatar state
   const [avatarUploading, setAvatarUploading] = useState(false);
 
-  // Profile Details Form State (initialized directly from authenticated user)
+  // Profile Details State
   const [name, setName] = useState(() => user?.name || "");
   const [phone, setPhone] = useState(() => user?.phone || "");
   const [city, setCity] = useState(() => user?.city || "");
-  const [stateName, setStateName] = useState(() => user?.state || "");
+  const [stateName, setStateName] = useState(() => user?.state || "Delhi (NCT)");
   const [bio, setBio] = useState(() => user?.bio || "");
   const [emergencyContact, setEmergencyContact] = useState(() => user?.emergencyContact || "");
   const [vehicleInfo, setVehicleInfo] = useState(() => user?.vehicleInfo || "");
@@ -59,7 +57,8 @@ function Profile() {
   const [idProofImage, setIdProofImage] = useState(() => user?.idProofImage || "");
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Password Change State
+  // Password Change & Forgot Password inside Profile
+  const [securityMode, setSecurityMode] = useState("change"); // 'change' | 'forgot'
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
@@ -67,13 +66,31 @@ function Profile() {
   const [otpCode, setOtpCode] = useState("");
   const [otpSending, setOtpSending] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
-  const [otpInfo, setOtpInfo] = useState(null);
+  const [otpSentMsg, setOtpSentMsg] = useState("");
   const [changingPwd, setChangingPwd] = useState(false);
 
-  // My Incident Reports State
+  // Reports State
   const [reports, setReports] = useState([]);
   const [loadingReports, setLoadingReports] = useState(false);
   const [lightboxImage, setLightboxImage] = useState("");
+
+  useEffect(() => {
+    refreshUser();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (otpCooldown <= 0) return undefined;
+    const t = setInterval(() => {
+      setOtpCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [otpCooldown]);
+
+  function notify(type, text) {
+    setFeedback({ type, text });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   function handleSelectReportsTab() {
     setActiveTab("reports");
@@ -89,19 +106,6 @@ function Profile() {
       .finally(() => setLoadingReports(false));
   }
 
-  useEffect(() => {
-    if (otpCooldown <= 0) return undefined;
-    const t = setInterval(() => {
-      setOtpCooldown((prev) => (prev > 1 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [otpCooldown]);
-
-  function notify(type, text) {
-    setFeedback({ type, text });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
   async function handleAvatarChange(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -111,9 +115,9 @@ function Profile() {
       const compressed = await compressImageFile(file, 480, 0.8);
       const res = await updateProfile({ avatar: compressed });
       if (res.success) {
-        notify("success", "Profile photo updated and saved to MongoDB Atlas!");
+        notify("success", res.message || "Profile photo submitted for verification.");
       } else {
-        notify("error", res.message || "Failed to save profile photo.");
+        notify("error", res.message || "Failed to update profile photo.");
       }
     } catch (err) {
       notify("error", err.message || "Could not upload image.");
@@ -128,7 +132,7 @@ function Profile() {
     try {
       const res = await updateProfile({ avatar: "" });
       if (res.success) {
-        notify("success", "Profile photo removed.");
+        notify("success", res.message || "Photo removal submitted.");
       }
     } finally {
       setAvatarUploading(false);
@@ -142,7 +146,7 @@ function Profile() {
       const compressed = await compressImageFile(file, 720, 0.8);
       setIdProofImage(compressed);
     } catch (err) {
-      notify("error", err.message || "Could not process ID proof image.");
+      notify("error", err.message || "Could not process ID image.");
     } finally {
       e.target.value = "";
     }
@@ -169,23 +173,23 @@ function Profile() {
         department: department.trim()
       };
 
-      // Allow updating official police credentials only if not locked as VERIFIED
-      if (role === "AUTHORITY" && user?.verificationStatus !== "VERIFIED") {
+      if (role === "AUTHORITY" || role === "ADMIN") {
         payload.badgeNumber = badgeNumber.trim();
         payload.rank = rank.trim();
         payload.stationName = stationName.trim();
-        payload.idProofImage = idProofImage;
-      } else if (role === "ADMIN") {
-        payload.badgeNumber = badgeNumber.trim();
-        payload.rank = rank.trim();
-        payload.stationName = stationName.trim();
+        if (role === "AUTHORITY" && idProofImage) {
+          payload.idProofImage = idProofImage;
+        }
       }
 
       const res = await updateProfile(payload);
       if (res.success) {
-        notify("success", res.message || "Profile saved cleanly to MongoDB Atlas!");
+        notify(
+          "success",
+          res.message || "Profile changes submitted for Administrator verification."
+        );
       } else {
-        notify("error", res.message || "Failed to update profile.");
+        notify("error", res.message || "Failed to submit profile update.");
       }
     } catch (err) {
       notify("error", "Profile update failed: " + err.message);
@@ -194,20 +198,19 @@ function Profile() {
     }
   }
 
-  async function handleSendPasswordOtp() {
+  async function handleSendSecurityOtp() {
     if (!user?.email) return;
     setOtpSending(true);
+    setOtpSentMsg("");
     setFeedback({ type: "", text: "" });
+    const purpose = securityMode === "forgot" ? "PASSWORD_RESET" : "PASSWORD_CHANGE";
     try {
-      const res = await sendOtp(user.email, "PASSWORD_CHANGE");
+      const res = await sendOtp(user.email, purpose);
       if (res.success) {
-        setOtpInfo({
-          message: res.message,
-          otpPreview: res.otpPreview
-        });
+        setOtpSentMsg(res.message || `6-digit verification code sent to ${user.email}.`);
         setOtpCooldown(45);
       } else {
-        notify("error", res.message || "Failed to send verification OTP.");
+        notify("error", res.message || "Unable to deliver email OTP.");
       }
     } catch (err) {
       notify("error", "OTP request failed: " + err.message);
@@ -220,13 +223,9 @@ function Profile() {
     e.preventDefault();
     setFeedback({ type: "", text: "" });
 
-    if (!currentPassword) {
-      notify("error", "Please enter your current password.");
-      return;
-    }
     const strength = evaluatePasswordStrength(newPassword);
     if (!strength.valid) {
-      notify("error", "New password must satisfy all 5 Enterprise Hard Password rules.");
+      notify("error", "New password must satisfy all 5 password criteria.");
       return;
     }
     if (newPassword !== confirmNewPassword) {
@@ -234,36 +233,52 @@ function Profile() {
       return;
     }
     if (!otpCode.trim() || otpCode.trim().length < 6) {
-      notify("error", "Please request and enter the 6-digit security OTP.");
+      notify("error", "Please enter the 6-digit OTP sent to your email.");
       return;
     }
 
     setChangingPwd(true);
     try {
-      const res = await changePassword({
-        currentPassword,
-        newPassword,
-        otpCode: otpCode.trim()
-      });
+      let res;
+      if (securityMode === "forgot") {
+        res = await resetUserPassword({
+          email: user.email,
+          otpCode: otpCode.trim(),
+          newPassword
+        });
+      } else {
+        if (!currentPassword) {
+          notify("error", "Please enter your current password or switch to Forgot Password.");
+          setChangingPwd(false);
+          return;
+        }
+        res = await changePassword({
+          currentPassword,
+          newPassword,
+          otpCode: otpCode.trim()
+        });
+      }
 
       if (res.success) {
-        notify("success", res.message || "Password updated & re-encrypted in MongoDB!");
+        notify("success", res.message || "Password updated securely!");
         setCurrentPassword("");
         setNewPassword("");
         setConfirmNewPassword("");
         setOtpCode("");
-        setOtpInfo(null);
+        setOtpSentMsg("");
+        await refreshUser();
       } else {
-        notify("error", res.message || "Password change verification failed.");
+        notify("error", res.message || "Password update verification failed.");
       }
     } catch (err) {
-      notify("error", "Failed to change password: " + err.message);
+      notify("error", "Failed to update password: " + err.message);
     } finally {
       setChangingPwd(false);
     }
   }
 
   const verStatus = user?.verificationStatus || "VERIFIED";
+  const pendingFields = user?.pendingProfileUpdates ? Object.keys(user.pendingProfileUpdates) : [];
   const initials = (user?.name || "U")
     .split(" ")
     .map((p) => p[0])
@@ -273,30 +288,22 @@ function Profile() {
 
   return (
     <div className="page-container profile-page-wrapper">
-      {/* FEEDBACK BANNER */}
       {feedback.text && (
         <div
-          className={
-            feedback.type === "error" ? "auth-error-banner" : "auth-success-banner"
-          }
+          className={feedback.type === "error" ? "auth-error-banner" : "auth-success-banner"}
           style={{ marginBottom: 20 }}
         >
-          {feedback.type === "error" ? (
-            <AlertTriangle size={18} />
-          ) : (
-            <CheckCircle2 size={18} />
-          )}
+          {feedback.type === "error" ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
           <span>{feedback.text}</span>
         </div>
       )}
 
-      {/* TOP PROFILE IDENTITY HERO */}
+      {/* TOP PROFILE HERO */}
       <section className="profile-hero-card cyber-glow-panel">
         <div className="panel-glow-corner corner-tl" />
         <div className="panel-glow-corner corner-br" />
 
         <div className="profile-hero-inner">
-          {/* AVATAR & CAMERA UPLOAD */}
           <div className="profile-avatar-block">
             <div className="profile-avatar-ring">
               {user?.avatar ? (
@@ -305,10 +312,7 @@ function Profile() {
                 <div className="profile-avatar-initials">{initials}</div>
               )}
 
-              <label
-                className="avatar-upload-fab"
-                title="Upload or change profile photo"
-              >
+              <label className="avatar-upload-fab" title="Upload new profile photo">
                 <input
                   type="file"
                   accept="image/*"
@@ -332,7 +336,6 @@ function Profile() {
             )}
           </div>
 
-          {/* USER IDENTITY SUMMARY */}
           <div className="profile-identity-meta">
             <div className="profile-badges-row">
               <span className={`role-badge role-${role.toLowerCase()}`}>
@@ -341,16 +344,16 @@ function Profile() {
                 {role === "PUBLIC" && <User size={12} />}
                 <span>
                   {role === "ADMIN"
-                    ? "Global Administrator"
+                    ? "Administrator"
                     : role === "AUTHORITY"
                       ? "Traffic Police"
-                      : "Verified Commuter"}
+                      : "Commuter"}
                 </span>
               </span>
 
               {user?.isEmailVerified && (
                 <span className="verified-chip chip-email-ok">
-                  <Mail size={12} /> OTP Email Verified
+                  <Mail size={12} /> Email Verified
                 </span>
               )}
 
@@ -361,7 +364,7 @@ function Profile() {
               )}
               {verStatus === "PENDING" && (
                 <span className="verified-chip chip-status-pending">
-                  <Clock size={13} /> Pending Admin Verification
+                  <Clock size={13} /> Account Verification Pending
                 </span>
               )}
               {verStatus === "REJECTED" && (
@@ -376,31 +379,40 @@ function Profile() {
               <Mail size={14} /> {user?.email}
               {user?.city && (
                 <>
-                  {" "}
-                  • <MapPin size={14} /> {user.city}
+                  {" "}• <MapPin size={14} /> {user.city}
                   {user.state ? `, ${user.state}` : ""}
                 </>
               )}
             </p>
 
-            {verStatus === "PENDING" && role === "AUTHORITY" && (
+            {/* ADMIN DATA UPDATE VERIFICATION CALLOUT */}
+            {user?.profileUpdateStatus === "PENDING" && pendingFields.length > 0 && (
               <div className="verification-pending-callout">
                 <Clock size={16} className="text-amber" />
                 <div>
-                  <strong>Admin Badge &amp; ID Verification Pending:</strong> An Administrator is
-                  reviewing your uploaded Police ID proof and Badge{" "}
-                  <code>{user?.badgeNumber || "Pending"}</code>. Full Police Command access unlocks
-                  immediately once verified.
+                  <strong>Data Update Pending Admin Verification:</strong> Your requested changes (
+                  {pendingFields.join(", ")}) are queued for Administrator approval before taking
+                  effect publicly.
                 </div>
               </div>
             )}
 
-            {verStatus === "REJECTED" && (
+            {user?.profileUpdateStatus === "REJECTED" && (
               <div className="verification-rejected-callout">
                 <AlertTriangle size={16} className="text-rose" />
                 <div>
-                  <strong>Verification Rejected:</strong>{" "}
-                  {user?.verificationNotes || "Please update your ID proof photo and contact Admin."}
+                  <strong>Last Profile Update Declined:</strong>{" "}
+                  {user?.profileUpdateNotes || "Please review your details and resubmit."}
+                </div>
+              </div>
+            )}
+
+            {verStatus === "PENDING" && role === "AUTHORITY" && (
+              <div className="verification-pending-callout">
+                <Clock size={16} className="text-amber" />
+                <div>
+                  <strong>Police Account Review Pending:</strong> An Administrator is reviewing your
+                  official Badge &amp; ID proof before enabling Police Command access.
                 </div>
               </div>
             )}
@@ -408,7 +420,7 @@ function Profile() {
             <div className="profile-telemetry-row">
               {user?.badgeNumber && (
                 <div className="profile-stat-pill">
-                  <span>Badge / Clearance ID</span>
+                  <span>Badge ID</span>
                   <strong>{user.badgeNumber}</strong>
                 </div>
               )}
@@ -425,11 +437,11 @@ function Profile() {
                 </div>
               )}
               <div className="profile-stat-pill">
-                <span>Last Login</span>
+                <span>Last Sign In</span>
                 <strong>
                   {user?.lastLoginAt
                     ? new Date(user.lastLoginAt).toLocaleString()
-                    : "Active Session"}
+                    : "Current Session"}
                 </strong>
               </div>
             </div>
@@ -444,14 +456,14 @@ function Profile() {
           className={`profile-tab-btn ${activeTab === "details" ? "active" : ""}`}
           onClick={() => setActiveTab("details")}
         >
-          <User size={16} /> Profile Details &amp; ID
+          <User size={16} /> Personal &amp; Official Details
         </button>
         <button
           type="button"
           className={`profile-tab-btn ${activeTab === "security" ? "active" : ""}`}
           onClick={() => setActiveTab("security")}
         >
-          <Lock size={16} /> Password &amp; OTP Security
+          <Lock size={16} /> Password &amp; Forgot Password
         </button>
         <button
           type="button"
@@ -462,15 +474,17 @@ function Profile() {
         </button>
       </div>
 
-      {/* ========================================= */}
-      {/* TAB 1: PROFILE DETAILS UPDATION           */}
-      {/* ========================================= */}
+      {/* TAB 1: PROFILE DETAILS UPDATION (SENT TO ADMIN FOR VERIFICATION) */}
       {activeTab === "details" && (
         <section className="portal-card profile-content-card">
           <div className="portal-card-header">
             <div>
-              <h2>Update Personal, Emergency &amp; Mobility Details</h2>
-              <p>Changes are encrypted and synchronized in real time with MongoDB Atlas.</p>
+              <h2>Update Profile Details</h2>
+              <p>
+                {role === "ADMIN"
+                  ? "Update your administrator account information."
+                  : "All profile and credential changes are reviewed and verified by an Administrator."}
+              </p>
             </div>
           </div>
 
@@ -505,27 +519,29 @@ function Profile() {
 
             <div className="form-row-split">
               <div className="auth-input-group">
+                <label>State / Union Territory</label>
+                <select
+                  value={stateName}
+                  onChange={(e) => setStateName(e.target.value)}
+                  className="auth-select-input"
+                >
+                  {INDIA_STATES_AND_UTS.map((s) => (
+                    <option key={s.state} value={s.state}>
+                      {s.state}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="auth-input-group">
                 <label>City / District</label>
                 <div className="input-with-icon">
                   <MapPin size={16} className="field-icon" />
                   <input
                     type="text"
-                    placeholder="e.g. New Delhi, Jalandhar, Mumbai"
+                    placeholder="Enter your city"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="auth-input-group">
-                <label>State / UT</label>
-                <div className="input-with-icon">
-                  <Building size={16} className="field-icon" />
-                  <input
-                    type="text"
-                    placeholder="e.g. Delhi, Punjab, Maharashtra"
-                    value={stateName}
-                    onChange={(e) => setStateName(e.target.value)}
                   />
                 </div>
               </div>
@@ -533,12 +549,12 @@ function Profile() {
 
             <div className="form-row-split">
               <div className="auth-input-group">
-                <label>Vehicle / Transit Information</label>
+                <label>Vehicle Information</label>
                 <div className="input-with-icon">
                   <Car size={16} className="field-icon" />
                   <input
                     type="text"
-                    placeholder="e.g. White EV Sedan • DL-01-XX-4501"
+                    placeholder="e.g. Sedan / Two-Wheeler"
                     value={vehicleInfo}
                     onChange={(e) => setVehicleInfo(e.target.value)}
                   />
@@ -546,12 +562,12 @@ function Profile() {
               </div>
 
               <div className="auth-input-group">
-                <label>SOS Emergency Contact (Name &amp; Phone)</label>
+                <label>Emergency Contact (Name &amp; Phone)</label>
                 <div className="input-with-icon">
                   <HeartPulse size={16} className="field-icon" />
                   <input
                     type="text"
-                    placeholder="e.g. Family Contact - +91 98XXXXXXXX"
+                    placeholder="Emergency contact number"
                     value={emergencyContact}
                     onChange={(e) => setEmergencyContact(e.target.value)}
                   />
@@ -561,7 +577,7 @@ function Profile() {
 
             <div className="form-row-split">
               <div className="auth-input-group">
-                <label>Department / Commuter Profile</label>
+                <label>Department / Commuter Category</label>
                 <div className="input-with-icon">
                   <Building size={16} className="field-icon" />
                   <input
@@ -573,36 +589,29 @@ function Profile() {
               </div>
 
               <div className="auth-input-group">
-                <label>Short Bio / Duty Summary</label>
+                <label>About / Bio</label>
                 <input
                   type="text"
-                  placeholder="Daily expressway commuter / Sector patrol lead..."
+                  placeholder="Optional bio or commute route notes"
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                 />
               </div>
             </div>
 
-            {/* POLICE OFFICIAL SECTION */}
             {(role === "AUTHORITY" || role === "ADMIN") && (
               <div className="police-credentials-panel" style={{ marginTop: 8 }}>
                 <div className="police-panel-title">
                   <FileBadge2 size={16} className="text-cyan" />
-                  <span>
-                    Official Service Credentials{" "}
-                    {role === "AUTHORITY" && verStatus === "VERIFIED"
-                      ? "(Verified & Locked by Admin)"
-                      : "(Editable While Pending/Review)"}
-                  </span>
+                  <span>Official Credentials</span>
                 </div>
 
                 <div className="form-row-split">
                   <div className="auth-input-group">
-                    <label>Badge / Clearance ID</label>
+                    <label>Badge / Officer ID</label>
                     <input
                       type="text"
                       value={badgeNumber}
-                      disabled={role === "AUTHORITY" && verStatus === "VERIFIED"}
                       onChange={(e) => setBadgeNumber(e.target.value)}
                     />
                   </div>
@@ -611,25 +620,23 @@ function Profile() {
                     <input
                       type="text"
                       value={rank}
-                      disabled={role === "AUTHORITY" && verStatus === "VERIFIED"}
                       onChange={(e) => setRank(e.target.value)}
                     />
                   </div>
                 </div>
 
                 <div className="auth-input-group">
-                  <label>Assigned Police Station / Headquarters</label>
+                  <label>Assigned Police Station / Office</label>
                   <input
                     type="text"
                     value={stationName}
-                    disabled={role === "AUTHORITY" && verStatus === "VERIFIED"}
                     onChange={(e) => setStationName(e.target.value)}
                   />
                 </div>
 
                 {role === "AUTHORITY" && (
                   <div className="auth-input-group">
-                    <label>Official Police ID Proof Photo</label>
+                    <label>Official ID Card Photo</label>
                     {idProofImage ? (
                       <div className="id-proof-preview-card">
                         <img
@@ -640,19 +647,17 @@ function Profile() {
                         />
                         <div className="id-proof-meta">
                           <span className="text-emerald">
-                            <CheckCircle2 size={14} /> ID Card Stored in MongoDB
+                            <CheckCircle2 size={14} /> ID Card Attached
                           </span>
-                          {verStatus !== "VERIFIED" && (
-                            <label className="replace-id-label">
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleIdProofUpload}
-                                hidden
-                              />
-                              <Upload size={13} /> Replace Photo
-                            </label>
-                          )}
+                          <label className="replace-id-label">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleIdProofUpload}
+                              hidden
+                            />
+                            <Upload size={13} /> Upload Updated ID
+                          </label>
                         </div>
                       </div>
                     ) : (
@@ -665,8 +670,8 @@ function Profile() {
                         />
                         <Upload size={18} className="text-cyan" />
                         <div>
-                          <strong>Upload Police ID Proof Photo</strong>
-                          <span>Required for Administrator verification</span>
+                          <strong>Upload Official ID Photo</strong>
+                          <span>Submitted for Administrator review</span>
                         </div>
                       </label>
                     )}
@@ -680,57 +685,94 @@ function Profile() {
                 type="submit"
                 className="cyber-submit-btn"
                 disabled={savingProfile}
-                style={{ width: "auto", minWidth: 240 }}
+                style={{ width: "auto", minWidth: 250 }}
               >
                 <Save size={17} />
-                <span>{savingProfile ? "Saving to MongoDB..." : "Save Profile Changes"}</span>
+                <span>
+                  {savingProfile
+                    ? "Submitting..."
+                    : role === "ADMIN"
+                      ? "Save Profile Changes"
+                      : "Submit Changes for Admin Verification"}
+                </span>
               </button>
             </div>
           </form>
         </section>
       )}
 
-      {/* ========================================= */}
-      {/* TAB 2: SECURITY & OTP PASSWORD CHANGE     */}
-      {/* ========================================= */}
+      {/* TAB 2: PASSWORD CHANGE & FORGOT PASSWORD VIA EMAIL OTP */}
       {activeTab === "security" && (
         <section className="portal-card profile-content-card">
           <div className="portal-card-header">
             <div>
-              <h2>Confidential Password Change &amp; 2FA Verification</h2>
+              <h2>Password Security &amp; Recovery</h2>
               <p>
-                Changing your password requires your current password, a live 6-digit OTP sent to{" "}
-                <strong>{user?.email}</strong>, and an Enterprise Hard Password.
+                Verify updates with a 6-digit OTP emailed directly to <strong>{user?.email}</strong>.
               </p>
             </div>
-            <span className="live-pulse-badge emerald">Bcrypt 12-Round Protected</span>
+          </div>
+
+          <div className="auth-mode-switch-bar" style={{ maxWidth: 460, marginBottom: 18 }}>
+            <button
+              type="button"
+              className={`mode-switch-tab ${securityMode === "change" ? "mode-tab-active" : ""}`}
+              onClick={() => {
+                setSecurityMode("change");
+                setOtpSentMsg("");
+                setOtpCode("");
+              }}
+            >
+              <Lock size={14} /> Change Password
+            </button>
+            <button
+              type="button"
+              className={`mode-switch-tab ${securityMode === "forgot" ? "mode-tab-active" : ""}`}
+              onClick={() => {
+                setSecurityMode("forgot");
+                setOtpSentMsg("");
+                setOtpCode("");
+              }}
+            >
+              <KeyRound size={14} /> Forgot Current Password
+            </button>
           </div>
 
           <form onSubmit={handlePasswordSubmit} className="profile-edit-form">
-            <div className="auth-input-group">
-              <label>Current Password *</label>
-              <div className="input-with-icon input-with-eye">
-                <Lock size={16} className="field-icon" />
-                <input
-                  type={showPwd ? "text" : "password"}
-                  required
-                  placeholder="Enter your existing password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="password-eye-btn"
-                  onClick={() => setShowPwd(!showPwd)}
-                >
-                  {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+            {securityMode === "change" && (
+              <div className="auth-input-group">
+                <div className="label-between-row">
+                  <label>Current Password *</label>
+                  <button
+                    type="button"
+                    className="inline-link-btn"
+                    onClick={() => setSecurityMode("forgot")}
+                  >
+                    Forgot current password? Reset via Email OTP
+                  </button>
+                </div>
+                <div className="input-with-icon input-with-eye">
+                  <Lock size={16} className="field-icon" />
+                  <input
+                    type={showPwd ? "text" : "password"}
+                    required
+                    placeholder="Enter your existing password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="password-eye-btn"
+                    onClick={() => setShowPwd(!showPwd)}
+                  >
+                    {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* OTP VERIFICATION STEP */}
             <div className="auth-input-group">
-              <label>6-Digit Email OTP Verification *</label>
+              <label>6-Digit Email OTP *</label>
               <div className="email-otp-action-row">
                 <div className="input-with-icon" style={{ flex: 1 }}>
                   <KeyRound size={16} className="field-icon" />
@@ -738,7 +780,7 @@ function Profile() {
                     type="text"
                     required
                     maxLength={6}
-                    placeholder="Enter 6-digit OTP"
+                    placeholder="Enter 6-digit OTP from your email"
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
                   />
@@ -746,7 +788,7 @@ function Profile() {
                 <button
                   type="button"
                   className="send-otp-btn"
-                  onClick={handleSendPasswordOtp}
+                  onClick={handleSendSecurityOtp}
                   disabled={otpSending || otpCooldown > 0}
                 >
                   <Send size={14} />
@@ -755,48 +797,40 @@ function Profile() {
                       ? "Sending..."
                       : otpCooldown > 0
                         ? `Wait (${otpCooldown}s)`
-                        : "Send Security OTP"}
+                        : "Email Me OTP"}
                   </span>
                 </button>
               </div>
             </div>
 
-            {otpInfo && (
+            {otpSentMsg && (
               <div className="otp-dispatch-card">
                 <div className="otp-dispatch-header">
-                  <ShieldCheck size={14} className="text-emerald" />
-                  <span>{otpInfo.message}</span>
+                  <Mail size={14} className="text-emerald" />
+                  <span>{otpSentMsg}</span>
                 </div>
-                {otpInfo.otpPreview && (
-                  <div className="otp-preview-box">
-                    <div>
-                      <span className="otp-preview-label">Security Change OTP:</span>
-                      <strong className="otp-preview-code">{otpInfo.otpPreview}</strong>
-                    </div>
-                    <button
-                      type="button"
-                      className="otp-autofill-btn"
-                      onClick={() => setOtpCode(otpInfo.otpPreview)}
-                    >
-                      <Copy size={12} /> Auto-fill
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 
             <div className="form-row-split">
               <div className="auth-input-group">
-                <label>New Hard Password *</label>
-                <div className="input-with-icon">
+                <label>New Strong Password *</label>
+                <div className="input-with-icon input-with-eye">
                   <Lock size={16} className="field-icon" />
                   <input
                     type={showPwd ? "text" : "password"}
                     required
-                    placeholder="Min 8 chars, A-Z, 0-9, !@#"
+                    placeholder="New strong password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                   />
+                  <button
+                    type="button"
+                    className="password-eye-btn"
+                    onClick={() => setShowPwd(!showPwd)}
+                  >
+                    {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
               </div>
 
@@ -807,7 +841,7 @@ function Profile() {
                   <input
                     type={showPwd ? "text" : "password"}
                     required
-                    placeholder="Re-enter new hard password"
+                    placeholder="Confirm new password"
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                   />
@@ -822,13 +856,15 @@ function Profile() {
                 type="submit"
                 className="cyber-submit-btn"
                 disabled={changingPwd}
-                style={{ width: "auto", minWidth: 260 }}
+                style={{ width: "auto", minWidth: 250 }}
               >
                 <ShieldCheck size={17} />
                 <span>
                   {changingPwd
-                    ? "Verifying OTP & Re-encrypting..."
-                    : "Verify OTP & Change Password"}
+                    ? "Updating Password..."
+                    : securityMode === "forgot"
+                      ? "Verify Email OTP & Reset Password"
+                      : "Verify Email OTP & Change Password"}
                 </span>
               </button>
             </div>
@@ -836,29 +872,27 @@ function Profile() {
         </section>
       )}
 
-      {/* ========================================= */}
-      {/* TAB 3: MY SUBMITTED HAZARD REPORTS        */}
-      {/* ========================================= */}
+      {/* TAB 3: MY REPORTS */}
       {activeTab === "reports" && (
         <section className="portal-card profile-content-card">
           <div className="portal-card-header">
             <div>
               <h2>My Submitted Road Hazard Reports ({reports.length})</h2>
-              <p>Real-time hazard reports linked to your account in MongoDB Atlas.</p>
+              <p>Live status of hazards you have reported.</p>
             </div>
             <Link to="/report" className="btn-add-inline" style={{ textDecoration: "none" }}>
-              + Report New Hazard
+              + Report Hazard
             </Link>
           </div>
 
           {loadingReports ? (
-            <p style={{ color: "#94a3b8" }}>Loading your hazard reports from MongoDB...</p>
+            <p style={{ color: "#94a3b8" }}>Loading your hazard reports...</p>
           ) : reports.length === 0 ? (
             <div className="empty-hazards-state">
               <AlertTriangle size={34} className="text-amber" />
-              <p>You have not submitted any hazard reports from this account yet.</p>
+              <p>You have not submitted any hazard reports yet.</p>
               <Link to="/report" className="btn-add-inline" style={{ textDecoration: "none", marginTop: 10 }}>
-                Submit Your First Hazard Report
+                Report a Road Hazard
               </Link>
             </div>
           ) : (
@@ -888,7 +922,7 @@ function Profile() {
                         <img
                           key={idx}
                           src={imgSrc}
-                          alt={`Evidence ${idx + 1}`}
+                          alt={`Hazard ${idx + 1}`}
                           onClick={() => setLightboxImage(imgSrc)}
                         />
                       ))}
@@ -908,7 +942,6 @@ function Profile() {
         </section>
       )}
 
-      {/* LIGHTBOX FOR VIEWING UPLOADED ID / INCIDENT PHOTOS */}
       {lightboxImage && (
         <div className="emergency-modal-overlay" onClick={() => setLightboxImage("")}>
           <div className="lightbox-card" onClick={(e) => e.stopPropagation()}>
@@ -919,7 +952,7 @@ function Profile() {
             >
               <X size={18} />
             </button>
-            <img src={lightboxImage} alt="Full Evidence Preview" />
+            <img src={lightboxImage} alt="Preview" />
           </div>
         </div>
       )}

@@ -4,60 +4,45 @@ const router = express.Router();
 
 /**
  * FlowSense AI Copilot / Smart City Assistant Knowledge Base
- * Answers Pan-India routing, MongoDB database architecture, traffic engineering,
+ * Answers Pan-India routing, real-time telemetry, traffic engineering,
  * safety protocols, emergency dispatch, and municipal queries.
  */
 async function generateAIResponse(userQuery) {
   const q = String(userQuery || "").toLowerCase().trim();
 
-  // 1. MONGODB DATABASE & PLATFORM COLLECTIONS
+  // 1. PAN-INDIA REAL-TIME COVERAGE & LIVE DATA
   if (
+    q.includes("cover") ||
+    q.includes("state") ||
+    q.includes("city") ||
+    q.includes("real-time") ||
+    q.includes("real time") ||
+    q.includes("live data") ||
     q.includes("mongo") ||
     q.includes("database") ||
     q.includes("collection") ||
-    q.includes("document") ||
-    q.includes("atlas") ||
-    q.includes("cluster") ||
-    q.includes("storage") ||
-    q.includes("schema")
+    q.includes("atlas")
   ) {
-    let stats = {
-      roads: 10,
-      records: 9240,
-      incidents: 5,
-      weather: 5,
-      advisories: 2,
-      users: 3
-    };
+    let activeIncidentCount = 0;
     try {
       if (mongoose.connection.readyState === 1 && mongoose.connection.db) {
-        const db = mongoose.connection.db;
-        const [rCount, tCount, iCount, wCount, aCount, uCount] = await Promise.all([
-          db.collection("roadsegments").countDocuments().catch(() => 10),
-          db.collection("trafficrecords").countDocuments().catch(() => 9240),
-          db.collection("incidents").countDocuments().catch(() => 5),
-          db.collection("weathers").countDocuments().catch(() => 5),
-          db.collection("advisories").countDocuments().catch(() => 2),
-          db.collection("users").countDocuments().catch(() => 3)
-        ]);
-        stats = { roads: rCount, records: tCount, incidents: iCount, weather: wCount, advisories: aCount, users: uCount };
+        activeIncidentCount = await mongoose.connection.db
+          .collection("incidents")
+          .countDocuments({ status: { $ne: "RESOLVED" } })
+          .catch(() => 0);
       }
-    } catch (e) {
-      // fallback to known seeded numbers
+    } catch {
+      activeIncidentCount = 0;
     }
 
     return {
-      reply: `🗄️ **FlowSense Live MongoDB Atlas Architecture:**\n\n` +
-        `Our database is hosted on **MongoDB Atlas Cloud (AWS Mumbai ap-south-1)** under the \`flowsense\` production database.\n\n` +
-        `**Live Production Collections & Documents:**\n` +
-        `• 🛣️ **\`roadsegments\`** (${stats.roads} Documents) — High-precision GIS coordinate arrays for major Indian corridors (GT Road/NH-44, Delhi-Meerut Expressway, Mumbai Eastern Freeway, Outer Ring Road Bengaluru, Chandigarh MP Marg, etc.)\n` +
-        `• 📊 **\`trafficrecords\`** (${stats.records.toLocaleString()} Documents) — 24/7 historical time-series velocity, congestion index (0–1), and vehicle volume counts.\n` +
-        `• 🚨 **\`incidents\`** (${stats.incidents} Documents) — Active road hazards, collisions, waterlogging, and road repairs with geo-coordinates and severity.\n` +
-        `• 🌧️ **\`weathers\`** (${stats.weather} Documents) — Multi-city meteorological telemetry (precipitation, visibility, wind speed, temperature).\n` +
-        `• 📢 **\`advisories\`** (${stats.advisories} Documents) — Traffic Police high-priority emergency alerts and green corridor broadcasts.\n` +
-        `• 👥 **\`users\`** (${stats.users} Accounts) — Secure RBAC authentication for Root Admins, Traffic Police Officers, and Public Commuters.\n` +
-        `• 📬 **\`contactmessages\`** — Direct citizen inquiries and municipal dispatch messages.\n\n` +
-        `👉 **Showcase & Inspect Documents:** Open the new [MongoDB Data Platform](/database) tab to view, search, and inspect all live collections and JSON documents!`
+      reply: `🌐 **FlowSense Pan-India Real-Time Intelligence Network:**\n\n` +
+        `FlowSense operates live across **all 28 Indian States & 8 Union Territories (36 regions total)** with city-level selection:\n` +
+        `• 🛣️ **Live Route & Place Autocomplete** — Multi-route pathfinding (OSRM) and Indian geocoding across highways, expressways, and city roads.\n` +
+        `• 🌦️ **Live Weather & Air Quality (AQI)** — Real-time precipitation, visibility, temperature, wind speed, and US/Indian AQI per selected city.\n` +
+        `• 🏥 **Emergency POIs** — Real-time lookup of nearest hospitals, police stations, and EV/fuel hubs around your active city.\n` +
+        `• 🚨 **Community Hazard Grid** — ${activeIncidentCount} active community and authority hazards currently tracked across India.\n\n` +
+        `👉 *Select your state & city from the top navbar anytime, or visit [Live Analytics](/dashboard).*`
     };
   }
 
@@ -97,7 +82,7 @@ async function generateAIResponse(userQuery) {
     return {
       reply: `📊 **FlowSense Route Stability Score (0–100) Algorithm:**\n\n` +
         `Unlike standard GPS engines that only inspect current momentary speed, FlowSense computes dynamic route resilience using a 4-Factor Weighted Model:\n\n` +
-        `1. **Historical Traffic Volatility (40%)**: Analyzes 9,240+ time-series records in MongoDB across day-of-week and hour-of-day to detect recurring bottlenecks.\n` +
+        `1. **Traffic Volatility Analysis (40%)**: Evaluates time-series velocity across day-of-week and hour-of-day (IST) alongside road congestion curves.\n` +
         `2. **Speed Variance & Delay Risk (25%)**: Root Mean Square Error (RMSE) between nominal highway free-flow speed and current observed speed.\n` +
         `3. **Active Hazard Penalties (20%)**: Live collision, waterlogging, or pothole reports deduct up to 35 points depending on severity.\n` +
         `4. **Meteorological Grid Penalties (15%)**: Real-time precipitation, fog visibility (<200m), and aquaplaning risks from the Open-Meteo API.\n\n` +
@@ -161,10 +146,10 @@ async function generateAIResponse(userQuery) {
     return {
       reply: `⚠️ **Reporting Road Hazards in FlowSense:**\n\n` +
         `Citizens, commuters, and emergency personnel can report road hazards across India via the [Report Hazard Portal](/report):\n\n` +
-        `1. **City Selection**: Choose your city (Delhi NCR, Mumbai, Bengaluru, Chandigarh, Jalandhar, or enter a custom city).\n` +
+        `1. **City Selection**: Select any Indian state and city across India.\n` +
         `2. **Hazard Type**: Select from Collision, Pothole, Severe Waterlogging, Road Construction, Fallen Trees, or Fire.\n` +
-        `3. **Location & Severity**: Provide street landmark and severity (LOW / MEDIUM / HIGH / CRITICAL).\n` +
-        `4. **Instant Synchronization**: Stored instantly in MongoDB Atlas, triggering dynamic route recalculations and notifying local Traffic Police!`
+        `3. **Location, Photo & Severity**: Attach incident photo evidence, mark the landmark, and set severity (LOW / MEDIUM / HIGH / CRITICAL).\n` +
+        `4. **Instant Synchronization**: Syncs live across commuters and Traffic Police alerts for your city!`
     };
   }
 
@@ -201,27 +186,23 @@ async function generateAIResponse(userQuery) {
   ) {
     return {
       reply: `🛡️ **FlowSense Multi-Tier Role-Based Access Control (RBAC):**\n\n` +
-        `• 👤 **Public Commuter (\`PUBLIC\`)** — Open route stability evaluation, real-time weather grid, community hazard submission.\n` +
-        `• 👮 **Traffic Police (\`AUTHORITY\`)** — Multi-city jurisdiction command, Green Corridor preemption, live incident dispatch, audible sirens.\n` +
-        `• 👑 **Root Administrator (\`ADMIN\`)** — Master control over GIS road corridors, user promotion/revocation, platform diagnostics, MongoDB management.\n\n` +
-        `**Demo Credentials for Evaluation:**\n` +
-        `• Admin: \`admin@flowsense.gov.in\` | Password: \`admin\`\n` +
-        `• Traffic Police: \`police@flowsense.gov.in\` | Password: \`police\`\n` +
-        `• Commuter: \`citizen@flowsense.in\` | Password: \`citizen\`\n\n` +
-        `👉 *Sign in at the [Login Portal](/login) to test privileged tools.*`
+        `• 👤 **Public Commuter (\`PUBLIC\`)** — Real-time route stability evaluation, city weather & AQI grid, and verified hazard reporting.\n` +
+        `• 👮 **Traffic Police (\`AUTHORITY\`)** — City/district jurisdiction command, Green Corridor preemption, and live incident dispatch (requires Badge/Government ID verification).\n` +
+        `• 👑 **Administrator (\`ADMIN\`)** — Platform governance, Police badge & user profile update approval, and system oversight.\n\n` +
+        `👉 *Sign in or register with Email OTP verification at the [Login Portal](/login).*`
     };
   }
 
   // 9. DEFAULT SMART CITY COPILOT GREETING
   return {
-    reply: `🤖 **FlowSense Smart City AI Copilot is online and connected to MongoDB Atlas!**\n\n` +
+    reply: `🤖 **FlowSense Smart City AI Copilot is online!**\n\n` +
       `I can assist you with:\n` +
-      `• 🗄️ **MongoDB Platform**: Inspect live collections (\`roadsegments\`, \`trafficrecords\`, \`incidents\`, etc.)\n` +
+      `• 🌐 **Pan-India Coverage**: Live routes, weather, AQI, and hazards across all 28 States & 8 UTs.\n` +
       `• 📊 **Stability Score**: Learn how our 4-factor multi-tier algorithm calculates route resilience.\n` +
       `• 🚨 **Emergency Helplines**: Official toll-free numbers (**112**, **1033**, **108**, **101**).\n` +
       `• 🚑 **Green Corridors**: How Police synchronize signals for critical emergency vehicles.\n` +
       `• 🌧️ **Weather Safety**: Guidelines for heavy monsoon, fog, and aquaplaning.\n` +
-      `• ⚠️ **Hazard Reporting**: Submitting potholes and accident spots for municipal action.\n\n` +
+      `• ⚠️ **Hazard Reporting**: Submitting photo-verified potholes and accident spots for action.\n\n` +
       `*Feel free to ask any question or tap one of the quick prompt chips below!*`
   };
 }

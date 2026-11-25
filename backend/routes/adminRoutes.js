@@ -254,6 +254,74 @@ router.patch("/users/:id/verify", authenticate, requireRole("ADMIN"), async (req
   }
 });
 
+// Verify or reject a User's pending profile data updates
+router.patch("/users/:id/verify-profile-update", authenticate, requireRole("ADMIN"), async (req, res) => {
+  try {
+    const { status = "APPROVED", notes = "" } = req.body || {};
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      return res.status(400).json({ success: false, message: "Status must be APPROVED or REJECTED." });
+    }
+
+    if (global.isMongoConnected) {
+      const dbUser = await User.findById(req.params.id);
+      if (!dbUser) {
+        return res.status(404).json({ success: false, message: "User not found." });
+      }
+
+      if (status === "APPROVED" && dbUser.pendingProfileUpdates) {
+        const safeFields = [
+          "name",
+          "phone",
+          "city",
+          "state",
+          "bio",
+          "vehicleInfo",
+          "emergencyContact",
+          "avatar",
+          "department",
+          "badgeNumber",
+          "rank",
+          "stationName",
+          "idProofImage"
+        ];
+        safeFields.forEach((field) => {
+          if (dbUser.pendingProfileUpdates[field] !== undefined) {
+            dbUser[field] = dbUser.pendingProfileUpdates[field];
+          }
+        });
+      }
+
+      dbUser.pendingProfileUpdates = null;
+      dbUser.profileUpdateStatus = status;
+      dbUser.profileUpdateNotes = notes;
+      dbUser.verifiedBy = req.user.name;
+      dbUser.verifiedAt = new Date();
+      await dbUser.save();
+
+      const safeUser = dbUser.toObject();
+      delete safeUser.password;
+
+      return res.json({
+        success: true,
+        data: safeUser,
+        message: `Profile data update for ${safeUser.name} marked as ${status}.`
+      });
+    }
+
+    const memUpdated = MemoryStore.verifyProfileUpdate(req.params.id, status, req.user.name, notes);
+    if (!memUpdated) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    return res.json({
+      success: true,
+      data: memUpdated,
+      message: `Profile data update for ${memUpdated.name} marked as ${status}.`
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 router.delete("/users/:id", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
     if (global.isMongoConnected) {

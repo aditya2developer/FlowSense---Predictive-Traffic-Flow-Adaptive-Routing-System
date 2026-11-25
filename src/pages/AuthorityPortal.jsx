@@ -10,9 +10,9 @@ import {
   dispatchGreenCorridor
 } from "../api";
 import { useAuth } from "../context/AuthContext";
+import { useCity } from "../context/CityContext";
 import { soundAlert } from "../utils/soundAlert";
 import {
-  Siren,
   Radio,
   Ambulance,
   AlertTriangle,
@@ -20,18 +20,11 @@ import {
   CheckCircle2,
   ShieldCheck,
   Zap,
-  MapPin,
   Clock,
-  Car,
-  Filter,
   Sparkles,
   Building2,
-  Flame,
-  Droplets,
-  Construction,
   FileBadge2
 } from "lucide-react";
-import MapView from "../components/MapView";
 
 const POLICE_JURISDICTIONS = [
   "All Cities",
@@ -71,16 +64,27 @@ const CITY_CORRIDOR_PRESETS = {
 
 function AuthorityPortal() {
   const { user } = useAuth();
+  const { activeCity, cityMeta } = useCity();
 
-  const [selectedJurisdiction, setSelectedJurisdiction] = useState("All Cities");
+  const [selectedJurisdiction, setSelectedJurisdiction] = useState(() => activeCity || "All Cities");
+  const [prevActiveCity, setPrevActiveCity] = useState(activeCity);
   const [stats, setStats] = useState(null);
   const [incidents, setIncidents] = useState([]);
   const [advisories, setAdvisories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
 
   // Green Corridor State
-  const [gcFrom, setGcFrom] = useState("AIIMS New Delhi, Ansari Nagar");
-  const [gcTo, setGcTo] = useState("Indira Gandhi International Airport, Terminal 3");
+  const [gcFrom, setGcFrom] = useState(() => cityMeta?.defaultFrom || "AIIMS New Delhi, Ansari Nagar");
+  const [gcTo, setGcTo] = useState(() => cityMeta?.defaultTo || "Indira Gandhi International Airport, Terminal 3");
+
+  if (activeCity && activeCity !== prevActiveCity) {
+    setPrevActiveCity(activeCity);
+    setSelectedJurisdiction(activeCity);
+    if (cityMeta) {
+      setGcFrom(cityMeta.defaultFrom);
+      setGcTo(cityMeta.defaultTo);
+    }
+  }
   const [vehicleType, setVehicleType] = useState("AMBULANCE");
   const [priorityReason, setPriorityReason] = useState("Critical Trauma Patient Transfer");
   const [gcResult, setGcResult] = useState(null);
@@ -111,7 +115,24 @@ function AuthorityPortal() {
   }
 
   useEffect(() => {
-    loadData(selectedJurisdiction);
+    let active = true;
+    Promise.all([
+      fetchEnforcementStats(selectedJurisdiction).catch(() => ({ success: false })),
+      fetchIncidents(selectedJurisdiction).catch(() => ({ success: false, data: [] })),
+      fetchAdvisories().catch(() => ({ success: false, data: [] }))
+    ])
+      .then(([statsRes, incRes, advRes]) => {
+        if (!active) return;
+        if (statsRes.success) setStats(statsRes.stats);
+        if (incRes.success) setIncidents(incRes.data || []);
+        if (advRes.success) setAdvisories(advRes.data || []);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [selectedJurisdiction]);
 
   // Real-time polling every 6 seconds to fetch new hazards in active jurisdiction
@@ -305,7 +326,7 @@ function AuthorityPortal() {
           <div className="authority-stat-card">
             <span className="stat-label">Active Hazards ({selectedJurisdiction})</span>
             <strong className="stat-value text-red">{incidents.length}</strong>
-            <span className="stat-sub">Real-Time MongoDB Records</span>
+            <span className="stat-sub">Live Telemetry Feed</span>
           </div>
 
           <div className="authority-stat-card">

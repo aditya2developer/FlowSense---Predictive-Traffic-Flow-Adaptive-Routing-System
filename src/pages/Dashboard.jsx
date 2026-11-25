@@ -1,28 +1,66 @@
 import { useEffect, useState } from "react";
 import TrafficAnalytics from "../components/TrafficAnalytics";
 import { fetchIncidents, resolveIncident, fetchWeather, fetchRoadSegments } from "../api";
-import { RefreshCw, CloudSun, AlertCircle, Shield, Activity, Route, ThumbsUp, Camera } from "lucide-react";
+import { useCity } from "../context/CityContext";
+import { useAuth } from "../context/AuthContext";
+import { RefreshCw, CloudSun, AlertCircle, Shield, Activity, Route, ThumbsUp, Camera, MapPin } from "lucide-react";
 
 const WEATHER_CITIES = [
   "Delhi", "Mumbai", "Bengaluru", "Chennai", "Hyderabad", "Kolkata",
   "Pune", "Ahmedabad", "Jaipur", "Lucknow", "Chandigarh", "Jalandhar",
   "Surat", "Kochi", "Visakhapatnam", "Bhopal", "Indore", "Patna",
-  "Bhubaneswar", "Guwahati", "Dehradun", "Amritsar", "Vadodara"
+  "Bhubaneswar", "Guwahati", "Dehradun", "Amritsar", "Vadodara", "Ranchi",
+  "Shimla", "Panaji", "Srinagar", "Raipur"
 ];
 
 function Dashboard() {
+  const { activeCity, activeState, openCityModal } = useCity();
+  const { isAuthority } = useAuth();
+
   const [incidents, setIncidents] = useState([]);
   const [weather, setWeather] = useState(null);
-  const [roadCount, setRoadCount] = useState(5);
+  const [roadCount, setRoadCount] = useState(10);
   const [loading, setLoading] = useState(true);
-  const [weatherCity, setWeatherCity] = useState("Delhi");
+  const [scopeAllIndia, setScopeAllIndia] = useState(false);
+  const [weatherCity, setWeatherCity] = useState(() => activeCity || "Delhi");
+  const [prevActiveCity, setPrevActiveCity] = useState(activeCity);
   const [weatherLoading, setWeatherLoading] = useState(false);
 
-  async function loadDashboardData() {
+  if (activeCity !== prevActiveCity) {
+    setPrevActiveCity(activeCity);
+    setWeatherCity(activeCity);
+  }
+
+  useEffect(() => {
+    let active = true;
+    const cityFilter = scopeAllIndia ? "All" : activeCity;
+
+    Promise.all([
+      fetchIncidents(cityFilter).catch(() => ({ success: false, data: [] })),
+      fetchWeather(activeCity).catch(() => ({ success: false, data: null })),
+      fetchRoadSegments().catch(() => ({ success: false, data: [] }))
+    ])
+      .then(([incData, weatherData, segData]) => {
+        if (!active) return;
+        if (incData.success) setIncidents(incData.data || []);
+        if (weatherData.success) setWeather(weatherData.data || null);
+        if (segData.success && Array.isArray(segData.data)) setRoadCount(segData.data.length);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activeCity, scopeAllIndia]);
+
+  async function refreshDashboardData() {
     setLoading(true);
     try {
+      const cityFilter = scopeAllIndia ? "All" : activeCity;
       const [incData, weatherData, segData] = await Promise.all([
-        fetchIncidents().catch(() => ({ success: false, data: [] })),
+        fetchIncidents(cityFilter).catch(() => ({ success: false, data: [] })),
         fetchWeather(weatherCity).catch(() => ({ success: false, data: null })),
         fetchRoadSegments().catch(() => ({ success: false, data: [] }))
       ]);
@@ -34,15 +72,17 @@ function Dashboard() {
     }
   }
 
-  useEffect(() => { loadDashboardData(); }, []);
-
   async function handleWeatherCityChange(city) {
     setWeatherCity(city);
     setWeatherLoading(true);
     try {
       const res = await fetchWeather(city);
       if (res.success) setWeather(res.data);
-    } catch { /* quiet */ } finally { setWeatherLoading(false); }
+    } catch {
+      // quiet fallback
+    } finally {
+      setWeatherLoading(false);
+    }
   }
 
   async function handleResolve(id) {
@@ -62,18 +102,24 @@ function Dashboard() {
       <section className="dashboard-hero">
         <div className="dashboard-hero-inner">
           <div>
-            <h1>Traffic Analytics &amp; Control Center</h1>
+            <h1>Live Traffic Analytics — {activeCity}, {activeState}</h1>
             <p>
-              Real-time telemetry, active road incident dispatch, and historical pattern intelligence stored across MongoDB collections. Pan-India coverage across all 28 States &amp; 8 UTs.
+              Real-time weather, air quality, active road hazards, and corridor speed trends for{" "}
+              <strong>{activeCity}</strong> and connected highways across India.
             </p>
           </div>
-          <button className="refresh-btn-hero" onClick={loadDashboardData} disabled={loading}>
-            <RefreshCw size={16} className={loading ? "spin-icon" : ""} />
-            {loading ? "Refreshing..." : "Refresh Data"}
-          </button>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" className="refresh-btn-hero" onClick={openCityModal}>
+              <MapPin size={15} /> Switch City ({activeCity})
+            </button>
+            <button className="refresh-btn-hero" onClick={refreshDashboardData} disabled={loading}>
+              <RefreshCw size={16} className={loading ? "spin-icon" : ""} />
+              {loading ? "Refreshing..." : "Refresh Live Data"}
+            </button>
+          </div>
         </div>
 
-        {/* ENHANCED METRICS STRIP */}
+        {/* METRICS STRIP */}
         <div className="metrics-strip">
           <div className="metric-chip metric-chip-blue">
             <Route size={18} className="metric-icon" />
@@ -82,13 +128,15 @@ function Dashboard() {
           </div>
           <div className="metric-chip metric-chip-purple">
             <Activity size={18} className="metric-icon" />
-            <span className="metric-num">9,240+</span>
-            <span className="metric-label">Traffic Memory Records</span>
+            <span className="metric-num">{activeCity}</span>
+            <span className="metric-label">{activeState}</span>
           </div>
           <div className="metric-chip metric-chip-amber">
             <AlertCircle size={18} className="metric-icon" />
             <span className="metric-num metric-alert">{activeCount}</span>
-            <span className="metric-label">Active Incidents</span>
+            <span className="metric-label">
+              Active Hazards ({scopeAllIndia ? "All India" : activeCity})
+            </span>
           </div>
           <div className="metric-chip metric-chip-red">
             <Shield size={18} className="metric-icon" />
@@ -105,13 +153,13 @@ function Dashboard() {
         </div>
       </section>
 
-      {/* LIVE WEATHER CITY SWITCHER */}
+      {/* LIVE WEATHER & AQI CITY SWITCHER */}
       <section className="dashboard-weather-switcher-section">
         <div className="weather-switcher-card">
           <div className="weather-switcher-header">
             <CloudSun size={18} className="text-cyan" />
-            <h3>Live Weather Monitor — Select City</h3>
-            {weather && <span className="live-pulse-badge">Open-Meteo API Live</span>}
+            <h3>Live City Weather &amp; Air Quality Monitor</h3>
+            {weather && <span className="live-pulse-badge">Live Telemetry</span>}
           </div>
           <div className="weather-city-pills">
             {WEATHER_CITIES.map((c) => (
@@ -142,11 +190,11 @@ function Dashboard() {
               </div>
               <div className="weather-detail-item">
                 <span>Wind Speed</span>
-                <strong>{weather.windSpeed || "N/A"} km/h</strong>
+                <strong>{weather.windSpeed ?? "N/A"} km/h</strong>
               </div>
               <div className="weather-detail-item">
                 <span>Humidity</span>
-                <strong>{weather.humidity || "N/A"}%</strong>
+                <strong>{weather.humidity ?? "N/A"}%</strong>
               </div>
               <div className="weather-detail-item">
                 <span>Precipitation</span>
@@ -162,38 +210,58 @@ function Dashboard() {
               )}
               <div className="weather-detail-item">
                 <span>Road Safety</span>
-                <strong className={
-                  ((weather.rainfall || weather.precipitation || 0) > 10 || weather.condition?.toLowerCase().includes("rain") || weather.condition?.toLowerCase().includes("fog"))
-                    ? "text-rose"
-                    : "text-emerald"
-                }>
-                  {((weather.rainfall || weather.precipitation || 0) > 10 || weather.condition?.toLowerCase().includes("rain") || weather.condition?.toLowerCase().includes("fog"))
+                <strong
+                  className={
+                    (weather.rainfall || weather.precipitation || 0) > 10 ||
+                    weather.condition?.toLowerCase().includes("rain") ||
+                    weather.condition?.toLowerCase().includes("fog")
+                      ? "text-rose"
+                      : "text-emerald"
+                  }
+                >
+                  {(weather.rainfall || weather.precipitation || 0) > 10 ||
+                  weather.condition?.toLowerCase().includes("rain") ||
+                  weather.condition?.toLowerCase().includes("fog")
                     ? "Caution — Reduce Speed"
                     : "Normal Conditions"}
                 </strong>
               </div>
             </div>
           )}
-          {weatherLoading && <div className="weather-loading-row">Fetching live weather for {weatherCity}...</div>}
+          {weatherLoading && (
+            <div className="weather-loading-row">Fetching live weather for {weatherCity}...</div>
+          )}
         </div>
       </section>
 
-      {/* ACTIVE INCIDENTS */}
+      {/* ACTIVE INCIDENTS (CITY FILTERED) */}
       <section className="incidents-section-card">
         <div className="incidents-card-header">
           <div>
-            <h2>🚨 Active Road Hazards &amp; Incidents</h2>
-            <p>Reported incidents dynamically degrade route stability scores in real time. Click Resolve to clear a hazard from the system.</p>
+            <h2>🚨 Active Road Hazards — {scopeAllIndia ? "All India" : activeCity}</h2>
+            <p>Live road incidents affecting route stability scores in your selected region.</p>
           </div>
-          <button className="refresh-btn-sm" onClick={loadDashboardData} disabled={loading}>
-            {loading ? "..." : "🔄 Refresh"}
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              className="refresh-btn-sm"
+              onClick={() => setScopeAllIndia(!scopeAllIndia)}
+            >
+              {scopeAllIndia ? `Filter: ${activeCity} Only` : "Show All Cities"}
+            </button>
+            <button className="refresh-btn-sm" onClick={refreshDashboardData} disabled={loading}>
+              {loading ? "..." : "🔄 Refresh"}
+            </button>
+          </div>
         </div>
 
         {incidents.length === 0 ? (
           <div className="no-incidents-notice">
             <span>✅</span>
-            <p>All monitored road corridors are currently clear of active incidents.</p>
+            <p>
+              No active hazards reported in {scopeAllIndia ? "monitored regions" : activeCity} right
+              now.
+            </p>
           </div>
         ) : (
           <div className="incidents-table-wrapper">
@@ -206,7 +274,7 @@ function Dashboard() {
                   <th>City</th>
                   <th>Description</th>
                   <th>Reported</th>
-                  <th>Action</th>
+                  {isAuthority && <th>Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -225,16 +293,29 @@ function Dashboard() {
                       <div style={{ display: "flex", gap: 8, marginTop: 4, fontSize: "0.74rem", color: "#94a3b8" }}>
                         <span><ThumbsUp size={11} /> {inc.upvotes || 1}</span>
                         {Array.isArray(inc.images) && inc.images.length > 0 && (
-                          <span style={{ color: "#38bdf8" }}><Camera size={11} /> {inc.images.length} photo(s)</span>
+                          <span style={{ color: "#38bdf8" }}>
+                            <Camera size={11} /> {inc.images.length} photo(s)
+                          </span>
                         )}
                       </div>
                     </td>
-                    <td>{new Date(inc.reportedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
                     <td>
-                      <button className="resolve-btn" onClick={() => handleResolve(inc._id)} title="Mark hazard as cleared">
-                        ✓ Resolve
-                      </button>
+                      {new Date(inc.reportedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit"
+                      })}
                     </td>
+                    {isAuthority && (
+                      <td>
+                        <button
+                          className="resolve-btn"
+                          onClick={() => handleResolve(inc._id)}
+                          title="Mark hazard as cleared"
+                        >
+                          ✓ Resolve
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -243,7 +324,6 @@ function Dashboard() {
         )}
       </section>
 
-      {/* TRAFFIC MEMORY ANALYTICS COMPONENT */}
       <TrafficAnalytics />
     </div>
   );

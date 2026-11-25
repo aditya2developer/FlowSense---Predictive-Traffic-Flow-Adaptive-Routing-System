@@ -222,7 +222,103 @@ async function fetchNearbyEmergencyServices(lat = 28.6139, lon = 77.2090, radius
   };
 }
 
+const autocompleteCache = new Map();
+
+/**
+ * Live Pan-India Location Autocomplete powered by OpenStreetMap Photon + Nominatim fallback.
+ * Biased toward user's selected city coordinates when available, scoped strictly to India.
+ */
+async function autocompleteLocationIndia(query, biasLat = null, biasLon = null) {
+  const q = String(query || "").trim();
+  if (q.length < 2) return [];
+
+  const cacheKey = `${q.toLowerCase()}:${biasLat || ""}:${biasLon || ""}`;
+  const cached = autocompleteCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 60000) {
+    return cached.items;
+  }
+
+  // Tier 1: OpenStreetMap Photon (ultra-fast, supports India bbox + city center bias)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3200);
+    const biasParams =
+      Number.isFinite(Number(biasLat)) && Number.isFinite(Number(biasLon))
+        ? `&lat=${Number(biasLat)}&lon=${Number(biasLon)}`
+        : "";
+    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&bbox=68.1,6.5,97.4,37.1&limit=6${biasParams}`;
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "FlowSense-SmartCity/2.0" }
+    });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = await res.json();
+      const features = Array.isArray(data.features) ? data.features : [];
+      const items = features
+        .filter((f) => {
+          const country = (f.properties?.country || "").toLowerCase();
+          return !country || country.includes("india") || country.includes("bharat");
+        })
+        .map((f) => {
+          const p = f.properties || {};
+          const coords = f.geometry?.coordinates || [0, 0];
+          const label = [p.name, p.street, p.city || p.town || p.county, p.state]
+            .filter(Boolean)
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .join(", ");
+          return {
+            label: label || q,
+            city: p.city || p.town || p.county || p.state || "India",
+            state: p.state || "India",
+            latitude: Number(coords[1]),
+            longitude: Number(coords[0])
+          };
+        })
+        .filter((item) => item.label);
+
+      if (items.length > 0) {
+        autocompleteCache.set(cacheKey, { ts: Date.now(), items });
+        return items;
+      }
+    }
+  } catch {
+    // Fallback to Nominatim below
+  }
+
+  // Tier 2: OpenStreetMap Nominatim (India countrycodes=in)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3200);
+    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=in&limit=5&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "FlowSense-SmartCity/2.0" }
+    });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = await res.json();
+      const items = (Array.isArray(data) ? data : []).map((row) => ({
+        label: row.display_name,
+        city: row.display_name.split(",")[1]?.trim() || "India",
+        state: row.display_name.split(",").slice(-2, -1)[0]?.trim() || "India",
+        latitude: Number(row.lat),
+        longitude: Number(row.lon)
+      }));
+      autocompleteCache.set(cacheKey, { ts: Date.now(), items });
+      return items;
+    }
+  } catch {
+    // quiet empty list
+  }
+
+  return [];
+}
+
 module.exports = {
   reverseGeocode,
-  fetchNearbyEmergencyServices
+  fetchNearbyEmergencyServices,
+  autocompleteLocationIndia
 };

@@ -1,50 +1,20 @@
 import { useState, useEffect } from "react";
+import { useCity } from "../context/CityContext";
+import { INDIA_STATES_AND_UTS } from "../utils/indiaLocations";
 import {
   PhoneCall,
-  Shield,
   AlertTriangle,
   Building2,
   Send,
   CheckCircle2,
-  MapPin,
-  Clock,
-  ExternalLink,
-  HelpCircle,
   FileText,
-  LifeBuoy,
-  BadgeAlert,
-  Search
+  LifeBuoy
 } from "lucide-react";
 import { fetchHelplines, submitContactMessage } from "../api";
 
 const INDIAN_STATES = [
   "National / Central Query",
-  "Delhi NCR",
-  "Maharashtra",
-  "Karnataka",
-  "Tamil Nadu",
-  "Telangana",
-  "Gujarat",
-  "Uttar Pradesh",
-  "West Bengal",
-  "Punjab",
-  "Haryana",
-  "Rajasthan",
-  "Madhya Pradesh",
-  "Kerala",
-  "Andhra Pradesh",
-  "Odisha",
-  "Bihar",
-  "Jharkhand",
-  "Assam",
-  "Himachal Pradesh",
-  "Uttarakhand",
-  "Jammu & Kashmir",
-  "Goa",
-  "Chhattisgarh",
-  "Chandigarh (UT)",
-  "Puducherry (UT)",
-  "Other State / Union Territory"
+  ...INDIA_STATES_AND_UTS.map((s) => s.state)
 ];
 
 const GRIEVANCE_CATEGORIES = [
@@ -59,17 +29,18 @@ const GRIEVANCE_CATEGORIES = [
 ];
 
 export default function ContactHelpline() {
+  const { activeState, activeCity } = useCity();
+
   const [helplines, setHelplines] = useState([]);
   const [stateDirectories, setStateDirectories] = useState([]);
-  const [loadingDirectory, setLoadingDirectory] = useState(true);
-  const [stateFilter, setStateFilter] = useState("All");
+  const [stateFilter, setStateFilter] = useState(() => activeState?.split(" ")[0] || "All");
 
   // Form State
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [selectedState, setSelectedState] = useState("Delhi NCR");
-  const [city, setCity] = useState("");
+  const [selectedState, setSelectedState] = useState(() => activeState || "Delhi (NCT)");
+  const [city, setCity] = useState(() => activeCity || "");
   const [category, setCategory] = useState("POTHOLE_ROAD_GRIEVANCE");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -86,8 +57,7 @@ export default function ContactHelpline() {
           setStateDirectories(res.stateDirectories || []);
         }
       })
-      .catch(() => {})
-      .finally(() => setLoadingDirectory(false));
+      .catch(() => {});
   }, []);
 
   async function handleSubmit(e) {
@@ -127,9 +97,14 @@ export default function ContactHelpline() {
     }
   }
 
-  const filteredDirectories = stateFilter === "All"
+  const matchedDirs = stateFilter === "All"
     ? stateDirectories
-    : stateDirectories.filter((d) => d.state.toLowerCase().includes(stateFilter.toLowerCase()));
+    : stateDirectories.filter(
+        (d) =>
+          d.state.toLowerCase().includes(stateFilter.toLowerCase()) ||
+          d.city.toLowerCase().includes(activeCity.toLowerCase())
+      );
+  const filteredDirectories = matchedDirs.length > 0 ? matchedDirs : stateDirectories;
 
   return (
     <div className="contact-page-wrapper">
@@ -181,7 +156,7 @@ export default function ContactHelpline() {
           <h2>Submit Road Grievance or Smart City Inquiry</h2>
         </div>
         <p className="section-subtitle">
-          Report recurring signal failures, highway maintenance issues, municipal partnerships, or API queries directly to MongoDB.
+          Report recurring signal failures, highway maintenance issues, or road safety concerns directly to our Operations Desk.
         </p>
 
         {submittedTicket && (
@@ -189,7 +164,7 @@ export default function ContactHelpline() {
             <div className="ticket-success-header">
               <CheckCircle2 size={24} className="text-emerald" />
               <div>
-                <h3>Grievance Successfully Registered in Database!</h3>
+                <h3>Grievance Successfully Registered!</h3>
                 <span className="ticket-id-badge">Ticket #{submittedTicket.ticketId}</span>
               </div>
             </div>
@@ -310,16 +285,25 @@ export default function ContactHelpline() {
             className="contact-submit-btn"
             disabled={submitting}
           >
-            {submitting ? "Transmitting to Operations Desk..." : <><Send size={18} /> Submit Grievance / Inquiry to MongoDB</>}
+            {submitting ? "Sending to Operations Desk..." : <><Send size={18} /> Submit Grievance / Inquiry</>}
           </button>
         </form>
       </section>
 
       {/* SECTION 3: STATE-WISE TRAFFIC POLICE CONTROL ROOM DIRECTORY */}
       <section className="contact-section" style={{ marginTop: 40 }}>
-        <div className="section-title-wrap">
-          <Building2 size={20} className="text-purple" />
-          <h2>State-Wise Traffic Police Control Room Directory</h2>
+        <div className="section-title-wrap" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Building2 size={20} className="text-purple" />
+            <h2>State Traffic Police Control Room Directory</h2>
+          </div>
+          <button
+            type="button"
+            className="refresh-btn-sm"
+            onClick={() => setStateFilter(stateFilter === "All" ? activeState?.split(" ")[0] || "All" : "All")}
+          >
+            {stateFilter === "All" ? `Show ${activeState} First` : "Show All States"}
+          </button>
         </div>
         <p className="section-subtitle">
           Direct desk contacts and headquarters control rooms for major Indian metropolitan traffic police wings.

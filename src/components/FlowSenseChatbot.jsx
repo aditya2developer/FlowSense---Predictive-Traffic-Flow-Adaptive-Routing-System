@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  MessageSquare,
   X,
   Send,
-  Sparkles,
   Bot,
   User,
   Trash2,
@@ -12,16 +10,12 @@ import {
   Volume2,
   VolumeX,
   Copy,
-  Check,
-  ExternalLink,
-  Shield,
-  Layers,
-  Database
+  Check
 } from "lucide-react";
 import { sendChatMessage } from "../api";
 
 const QUICK_PROMPTS = [
-  { label: "🗄️ Query MongoDB Database Collections", query: "Show me all collections and documents in our MongoDB database" },
+  { label: "🌐 Pan-India Real-Time Coverage", query: "Which states and cities does FlowSense cover in real time?" },
   { label: "📊 How is Stability Score calculated?", query: "How is the FlowSense route stability score calculated?" },
   { label: "🚨 Emergency Helplines (112 / 1033)", query: "What are the emergency helplines for road accidents and highways in India?" },
   { label: "🚑 Emergency Green Corridor Protocol", query: "How does the emergency green corridor work for ambulances?" },
@@ -42,12 +36,13 @@ export default function FlowSenseChatbot() {
     {
       id: "welcome-1",
       sender: "bot",
-      text: "🤖 **Namaste! I am your FlowSense Smart City AI Copilot.**\n\nI am connected to your live **MongoDB Atlas Cloud** cluster (`flowsense` database). You can ask me about real-time route stability, live collections, emergency helplines (**112** / **1033**), weather safety, or how Traffic Police dispatch Green Corridors.\n\n*Tap any of the quick prompt chips below or type your question!*",
+      text: "🤖 **Namaste! I am your FlowSense Smart City AI Copilot.**\n\nI provide live guidance across all **28 Indian States & 8 Union Territories**. Ask me about real-time route stability, city weather & AQI telemetry, emergency helplines (**112** / **1033**), road hazard reporting, or Traffic Police Green Corridors.\n\n*Tap any quick prompt chip below or type your question!*",
       time: "Just now"
     }
   ]);
 
   const messagesEndRef = useRef(null);
+  const idCounterRef = useRef(1);
 
   useEffect(() => {
     if (isOpen) {
@@ -70,7 +65,7 @@ export default function FlowSenseChatbot() {
       utterance.rate = 1.05;
       utterance.pitch = 1.0;
       window.speechSynthesis.speak(utterance);
-    } catch (e) {
+    } catch {
       // Speech synthesis unsupported or blocked
     }
   }
@@ -80,7 +75,7 @@ export default function FlowSenseChatbot() {
     if (!query || loading) return;
 
     const userMsg = {
-      id: `user-${Date.now()}`,
+      id: `user-${idCounterRef.current++}`,
       sender: "user",
       text: query,
       time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -98,7 +93,7 @@ export default function FlowSenseChatbot() {
           : "FlowSense AI Copilot is online. For immediate road assistance, dial National Helpline **112** or NHAI Helpline **1033**.";
 
       const botMsg = {
-        id: `bot-${Date.now()}`,
+        id: `bot-${idCounterRef.current++}`,
         sender: "bot",
         text: botText,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -108,9 +103,9 @@ export default function FlowSenseChatbot() {
       speakText(botText);
     } catch {
       const fallbackMsg = {
-        id: `bot-${Date.now()}`,
+        id: `bot-${idCounterRef.current++}`,
         sender: "bot",
-        text: "🚨 **Emergency Assistance:** Dial **112** for all police/medical emergencies, or **1033** for NHAI Highway Assistance. You can also view the [Contact & Helpline Directory](/contact) or inspect our live records in the [MongoDB Platform](/database).",
+        text: "🚨 **Emergency Assistance:** Dial **112** for all police/medical emergencies, or **1033** for NHAI Highway Assistance. You can also view the [Contact & Helpline Directory](/contact) or check [Live Analytics](/dashboard).",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       };
       setMessages((prev) => [...prev, fallbackMsg]);
@@ -180,7 +175,7 @@ export default function FlowSenseChatbot() {
             </div>
             <div className="launcher-text-wrap">
               <span className="bot-launcher-label">AI Copilot</span>
-              <span className="bot-launcher-status">Atlas Online</span>
+              <span className="bot-launcher-status">Pan-India Live</span>
             </div>
           </button>
         </div>
@@ -198,7 +193,7 @@ export default function FlowSenseChatbot() {
               <div className="bot-titles">
                 <div className="bot-title-wrap">
                   <h4>FlowSense Smart City AI</h4>
-                  <span className="live-dot" title="Connected to MongoDB Atlas" />
+                  <span className="live-dot" title="Live Pan-India Telemetry Online" />
                 </div>
                 <span className="bot-subtitle">Pan-India Real-Time Mobility &amp; Safety Copilot</span>
               </div>
@@ -228,9 +223,9 @@ export default function FlowSenseChatbot() {
                 onClick={() => {
                   setMessages([
                     {
-                      id: `welcome-${Date.now()}`,
+                      id: `welcome-${idCounterRef.current++}`,
                       sender: "bot",
-                      text: "🧹 **Chat thread cleared.** Ask me anything about Indian highway navigation, real-time stability scores, emergency helplines, or our live MongoDB Atlas collections!",
+                      text: "🧹 **Chat thread cleared.** Ask me anything about Indian highway navigation, real-time route stability, city weather & AQI, or emergency helplines!",
                       time: "Just now"
                     }
                   ]);
@@ -345,7 +340,7 @@ export default function FlowSenseChatbot() {
           <div className="chatbot-footer">
             <input
               type="text"
-              placeholder="Ask Copilot about routes, MongoDB, helplines, police dispatch..."
+              placeholder="Ask Copilot about routes, city weather, helplines, safety..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}

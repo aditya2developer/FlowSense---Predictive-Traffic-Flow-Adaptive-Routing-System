@@ -8,14 +8,19 @@ const ROAD_OPTIONS = [
   { id: "RD002", name: "Nakodar Road (RD002)" },
   { id: "RD003", name: "Phagwara Road (RD003)" },
   { id: "RD004", name: "Jalandhar-Amritsar Highway (RD004)" },
-  { id: "RD005", name: "Bus Stand Road (RD005)" }
+  { id: "RD005", name: "Bus Stand Road (RD005)" },
+  { id: "RD_DEL_01", name: "Delhi-Meerut Expressway (NE-3)" },
+  { id: "RD_DEL_02", name: "Ring Road Dhaula Kuan - AIIMS" },
+  { id: "RD_MUM_01", name: "Mumbai Eastern Freeway" },
+  { id: "RD_BLR_01", name: "Bengaluru Outer Ring Road" },
+  { id: "RD_CHD_01", name: "Chandigarh Madhya Marg" }
 ];
 
 function TrafficAnalytics() {
   const [roadId, setRoadId] = useState("RD001");
   const [analytics, setAnalytics] = useState([]);
   const [selectedDay, setSelectedDay] = useState("ALL");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   async function loadAnalytics(targetRoadId = roadId) {
@@ -52,9 +57,30 @@ function TrafficAnalytics() {
       ? analytics
       : analytics.filter((item) => item.dayOfWeek === selectedDay);
 
-  // Load analytics when the component mounts
+  // Load initial corridor analytics on mount without synchronous setState in effect
   useEffect(() => {
-    loadAnalytics("RD001");
+    let active = true;
+    apiFetchAnalytics("RD001")
+      .then((data) => {
+        if (!active) return;
+        if (!data.success) {
+          setError(data.message || "Failed to load traffic analytics.");
+          setAnalytics([]);
+        } else {
+          setAnalytics(Array.isArray(data.data) ? data.data : []);
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err.message || "Unable to connect to the backend.");
+        setAnalytics([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   return (
@@ -63,7 +89,7 @@ function TrafficAnalytics() {
         <div>
           <h2>📊 Traffic Memory Engine Analytics</h2>
           <p>
-            Aggregated historical traffic patterns, speed variations, and congestion profiles stored in MongoDB.
+            Aggregated historical traffic patterns, speed variations, and congestion profiles across major corridors.
           </p>
         </div>
       </div>
@@ -130,10 +156,10 @@ function TrafficAnalytics() {
         </div>
       )}
 
-      {/* Empty database result */}
+      {/* Empty analytics result */}
       {!loading && !error && analytics.length === 0 && (
         <div className="analytics-empty-state">
-          <p>No historical traffic data found for this road. Run <code>node backend/seedData.js</code> to populate data.</p>
+          <p>No historical traffic observations recorded for this corridor yet. Select another corridor above to explore live metrics.</p>
         </div>
       )}
 
