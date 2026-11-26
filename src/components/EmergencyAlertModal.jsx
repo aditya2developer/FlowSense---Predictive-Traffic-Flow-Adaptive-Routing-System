@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { soundAlert } from "../utils/soundAlert";
 import { fetchIncidents } from "../api";
 import { useAuth } from "../context/AuthContext";
@@ -8,12 +8,8 @@ import {
   VolumeX,
   X,
   CheckCircle,
-  Siren,
-  BellRing,
   ShieldAlert,
-  Compass,
   MapPin,
-  Clock,
   User
 } from "lucide-react";
 
@@ -27,6 +23,19 @@ export default function EmergencyAlertModal() {
 
   // STRICT REQUIREMENT: Siren alarm and alert modal must ONLY trigger for Traffic Police (AUTHORITY)
   const isTrafficPolice = role === "AUTHORITY";
+
+  const triggerPoliceAlert = useCallback(
+    (hazardData) => {
+      // Double check: Alarm should come to ONLY traffic police, NOT public and admin
+      if (!isTrafficPolice) return;
+
+      setActiveAlert(hazardData);
+      setIsOpen(true);
+      // Play the audible siren sound for Traffic Police
+      soundAlert.playSiren(9);
+    },
+    [isTrafficPolice]
+  );
 
   // Listen for custom hazard report events dispatched from the Incident Report page or other portals
   useEffect(() => {
@@ -44,7 +53,7 @@ export default function EmergencyAlertModal() {
       window.removeEventListener("flowsense-hazard-reported", handleCustomAlert);
       window.removeEventListener("flowsense-emergency-alert", handleCustomAlert);
     };
-  }, [isTrafficPolice]);
+  }, [isTrafficPolice, triggerPoliceAlert]);
 
   // Real-time polling for new hazard reports every 6 seconds — ONLY FOR TRAFFIC POLICE
   useEffect(() => {
@@ -85,7 +94,7 @@ export default function EmergencyAlertModal() {
             });
           }
         }
-      } catch (err) {
+      } catch {
         // quiet fallback
       }
     }
@@ -96,17 +105,7 @@ export default function EmergencyAlertModal() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [isTrafficPolice]);
-
-  function triggerPoliceAlert(hazardData) {
-    // Double check: Alarm should come to ONLY traffic police, NOT public and admin
-    if (!isTrafficPolice) return;
-
-    setActiveAlert(hazardData);
-    setIsOpen(true);
-    // Play the audible siren sound for Traffic Police
-    soundAlert.playSiren(9);
-  }
+  }, [isTrafficPolice, triggerPoliceAlert]);
 
   function handleDismiss() {
     soundAlert.stopSiren();
@@ -116,22 +115,6 @@ export default function EmergencyAlertModal() {
   function handleToggleMute() {
     const muted = soundAlert.toggleMute();
     setIsMuted(muted);
-  }
-
-  function handleManualPoliceDrill() {
-    triggerPoliceAlert({
-      id: `drill-${Date.now()}`,
-      type: "ACCIDENT",
-      title: "🚨 LIVE HAZARD SIREN TEST: TRAFFIC POLICE DRILL",
-      roadName: "GT Road / NH-44 Expressway",
-      city: "Active Jurisdiction",
-      location: "Near Chaheru Flyover Junction",
-      severity: "CRITICAL",
-      description: "Simulation drill: Multi-vehicle collision reported blocking left two lanes. Emergency response protocol triggered.",
-      reportedBy: "Control Room Simulation",
-      recommendation: "1. Dispatch Patrol Unit #4 with hazard cones. 2. Preempt traffic lights to green at preceding intersection. 3. Call 108 Emergency Ambulance.",
-      time: new Date().toLocaleTimeString()
-    });
   }
 
   // If user is NOT Traffic Police (i.e. Public or Admin), DO NOT render any siren or alert modal

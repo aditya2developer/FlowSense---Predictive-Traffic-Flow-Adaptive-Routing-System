@@ -46,7 +46,7 @@ async function reverseGeocode(lat, lon) {
         source: "BigDataCloud Real-Time Reverse Grid"
       };
     }
-  } catch (e) {
+  } catch {
     // Fall through to Nominatim
   }
 
@@ -74,7 +74,7 @@ async function reverseGeocode(lat, lon) {
         source: "OpenStreetMap Nominatim"
       };
     }
-  } catch (e) {}
+  } catch { /* no-op */ }
 
   return {
     latitude,

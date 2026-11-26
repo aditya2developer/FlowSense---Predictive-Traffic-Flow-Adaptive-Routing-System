@@ -4,8 +4,8 @@
  */
 
 function generateRecommendations(type, severity, roadName = "the corridor", city = "the city") {
-  let driverRecommendation = "";
-  let policeActionPlan = "";
+  let driverRecommendation;
+  let policeActionPlan;
 
   switch (type) {
     case "ACCIDENT":

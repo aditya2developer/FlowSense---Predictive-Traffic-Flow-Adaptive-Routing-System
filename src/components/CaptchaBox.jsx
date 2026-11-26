@@ -5,7 +5,8 @@ export default function CaptchaBox({
   captchaAnswer,
   setCaptchaAnswer,
   onRefresh,
-  loadingCaptcha = false
+  loadingCaptcha = false,
+  captchaError = ""
 }) {
   return (
     <div className="captcha-security-card">
@@ -21,16 +22,35 @@ export default function CaptchaBox({
           title="Load a new CAPTCHA image"
         >
           <RefreshCw size={13} className={loadingCaptcha ? "spin-icon" : ""} />
-          <span>New Code</span>
+          <span>{loadingCaptcha ? "Loading..." : "New Code"}</span>
         </button>
       </div>
 
       <div className="captcha-challenge-row">
         <div className="captcha-img-wrap">
           {svgDataUrl ? (
-            <img src={svgDataUrl} alt="Security CAPTCHA Challenge" className="captcha-svg-img" />
+            <img
+              src={svgDataUrl}
+              alt="Security CAPTCHA Challenge"
+              className="captcha-svg-img"
+              onError={() => {
+                if (!loadingCaptcha) onRefresh();
+              }}
+            />
+          ) : captchaError && !loadingCaptcha ? (
+            <button
+              type="button"
+              className="captcha-retry-inline"
+              onClick={onRefresh}
+              title={captchaError}
+            >
+              <RefreshCw size={13} />
+              <span>Retry CAPTCHA</span>
+            </button>
           ) : (
-            <div className="captcha-placeholder">Loading CAPTCHA...</div>
+            <div className="captcha-placeholder">
+              {loadingCaptcha ? "Waking server & loading..." : "Loading CAPTCHA..."}
+            </div>
           )}
         </div>
 
@@ -45,6 +65,10 @@ export default function CaptchaBox({
           autoComplete="off"
         />
       </div>
+
+      {captchaError && !svgDataUrl && !loadingCaptcha && (
+        <p className="captcha-error-note">{captchaError}</p>
+      )}
     </div>
   );
 }

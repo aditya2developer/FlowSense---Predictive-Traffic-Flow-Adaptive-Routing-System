@@ -227,7 +227,7 @@ async function geocodeUnknownCity(cityName) {
         };
       }
     }
-  } catch (err) {}
+  } catch { /* no-op */ }
   return null;
 }
 

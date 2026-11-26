@@ -127,7 +127,7 @@ function verifyCaptchaChallenge(captchaToken, userAnswer) {
     }
 
     return { valid: true };
-  } catch (err) {
+  } catch {
     return { valid: false, message: "CAPTCHA validation failed." };
   }
 }

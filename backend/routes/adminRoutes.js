@@ -124,11 +124,11 @@ router.get("/users", authenticate, requireRole("ADMIN"), async (req, res) => {
       try {
         const users = await User.find().select("-password").sort({ createdAt: -1 });
         return res.json({ success: true, count: users.length, data: users });
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
     const memUsers = MemoryStore.getAllUsers();
     return res.json({ success: true, count: memUsers.length, data: memUsers });
-  } catch (error) {
+  } catch {
     const memUsers = MemoryStore.getAllUsers();
     return res.json({ success: true, count: memUsers.length, data: memUsers });
   }
@@ -343,7 +343,7 @@ router.delete("/users/:id", authenticate, requireRole("ADMIN"), async (req, res)
       }
       return res.json({ success: true, message: `User ${deleted.name} (${deleted.email}) deleted.` });
     }
-    const memDeleted = MemoryStore.deleteUser(req.params.id);
+    MemoryStore.deleteUser(req.params.id);
     return res.json({ success: true, message: `User deleted from memory.` });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -359,11 +359,11 @@ router.get("/segments", authenticate, requireRole("ADMIN"), async (req, res) => 
       try {
         const segments = await RoadSegment.find().sort({ createdAt: -1 });
         return res.json({ success: true, count: segments.length, data: segments });
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
     const memRoads = MemoryStore.getAllRoads();
     return res.json({ success: true, count: memRoads.length, data: memRoads });
-  } catch (error) {
+  } catch {
     const memRoads = MemoryStore.getAllRoads();
     return res.json({ success: true, count: memRoads.length, data: memRoads });
   }
@@ -439,11 +439,11 @@ router.get("/incidents", authenticate, requireRole("ADMIN"), async (req, res) =>
       try {
         const incidents = await Incident.find().sort({ createdAt: -1 });
         return res.json({ success: true, count: incidents.length, data: incidents });
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
     const memInc = MemoryStore.getAllIncidentsRaw();
     return res.json({ success: true, count: memInc.length, data: memInc });
-  } catch (error) {
+  } catch {
     const memInc = MemoryStore.getAllIncidentsRaw();
     return res.json({ success: true, count: memInc.length, data: memInc });
   }

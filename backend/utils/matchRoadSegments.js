@@ -116,7 +116,7 @@ throw new Error("Invalid road-matching configuration.");
   if (global.isMongoConnected) {
     try {
       roadSegments = await RoadSegment.find({ isActive: true }).lean();
-    } catch (e) {
+    } catch {
       roadSegments = [];
     }
   }

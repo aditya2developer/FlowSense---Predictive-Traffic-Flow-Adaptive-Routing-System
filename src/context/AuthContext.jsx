@@ -92,7 +92,7 @@ export function AuthProvider({ children }) {
     };
   }, [token]);
 
-  // Listen for logout in another tab (storage event) — keep all tabs in sync
+  // Listen for login / logout changes in other tabs (storage event) — keep all tabs in sync cleanly
   useEffect(() => {
     function onStorage(e) {
       if (e.key === "flowsense_token" && !e.newValue) {
@@ -101,9 +101,23 @@ export function AuthProvider({ children }) {
         setUser(null);
         setToken(null);
         setLoading(false);
+        return;
       }
       if (e.key === "flowsense_token" && e.newValue && e.newValue !== token) {
-        // Another tab logged in with a different token — reload to sync
+        // Another tab logged in — sync session state cleanly without jarring full reload
+        try {
+          const savedUser = localStorage.getItem("flowsense_user");
+          const parsedUser = savedUser ? JSON.parse(savedUser) : null;
+          if (parsedUser && isTokenStructurallyValid(e.newValue)) {
+            verifiedTokenRef.current = e.newValue;
+            setToken(e.newValue);
+            setUser(parsedUser);
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // fallback below
+        }
         window.location.reload();
       }
     }

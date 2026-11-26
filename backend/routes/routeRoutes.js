@@ -188,13 +188,13 @@ router.post("/search", optionalAuthenticate, async (req, res) => {
           }
           try {
             activeIncidents = await Incident.find({ roadId, status: "ACTIVE" }).lean();
-          } catch {}
+          } catch { /* no-op */ }
         }
         if (activeIncidents.length === 0 && searchCityKeywords.length > 0) {
           try {
             const cityRegexes = searchCityKeywords.map((c) => new RegExp(c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
             activeIncidents = await Incident.find({ city: { $in: cityRegexes }, status: "ACTIVE" }).limit(6).lean();
-          } catch {}
+          } catch { /* no-op */ }
         }
       } else {
         const MemoryStore = require("../utils/memoryStore");
@@ -944,7 +944,7 @@ router.get("/segments", async (req, res) => {
             data: segments
           });
         }
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
 
     const MemoryStore = require("../utils/memoryStore");
@@ -954,7 +954,7 @@ router.get("/segments", async (req, res) => {
       count: segments.length,
       data: segments
     });
-  } catch (error) {
+  } catch {
     const MemoryStore = require("../utils/memoryStore");
     const segments = MemoryStore.getAllRoads();
     return res.json({
@@ -1216,7 +1216,7 @@ router.get("/recent-searches", authenticate, async (req, res) => {
     const filter = req.user.role === "ADMIN" ? {} : { userId: req.user._id };
     const rows = await RouteSearch.find(filter).sort({ searchedAt: -1 }).limit(20).lean();
     return res.json({ success: true, count: rows.length, data: rows });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, message: "Failed to load search history." });
   }
 });
@@ -1336,13 +1336,13 @@ router.get('/incidents', optionalAuthenticate, async (req, res) => {
         const incidents = await Incident.find(filter).sort({ reportedAt: -1 }).limit(100);
         const safe = incidents.map((i) => sanitizeIncidentForCaller(i, req.user));
         return res.json({ success: true, count: safe.length, data: safe });
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
 
     const MemoryStore = require("../utils/memoryStore");
     const memInc = MemoryStore.getIncidents(city).map((i) => sanitizeIncidentForCaller(i, req.user));
     return res.json({ success: true, count: memInc.length, data: memInc });
-  } catch (error) {
+  } catch {
     const MemoryStore = require("../utils/memoryStore");
     const memInc = MemoryStore.getIncidents(req.query?.city).map((i) => sanitizeIncidentForCaller(i, req.user));
     return res.json({ success: true, count: memInc.length, data: memInc });
@@ -1362,13 +1362,13 @@ router.get('/incidents/city/:city', optionalAuthenticate, async (req, res) => {
         const incidents = await Incident.find(filter).sort({ reportedAt: -1 });
         const safe = incidents.map((i) => sanitizeIncidentForCaller(i, req.user));
         return res.json({ success: true, count: safe.length, data: safe });
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
 
     const MemoryStore = require("../utils/memoryStore");
     const memInc = MemoryStore.getIncidents(cityName).map((i) => sanitizeIncidentForCaller(i, req.user));
     return res.json({ success: true, count: memInc.length, data: memInc });
-  } catch (error) {
+  } catch {
     const MemoryStore = require("../utils/memoryStore");
     const memInc = MemoryStore.getIncidents(req.params.city).map((i) => sanitizeIncidentForCaller(i, req.user));
     return res.json({ success: true, count: memInc.length, data: memInc });
@@ -1383,14 +1383,14 @@ router.get('/incidents/road/:roadId', optionalAuthenticate, async (req, res) => 
         const incidents = await Incident.find({ roadId: req.params.roadId }).sort({ reportedAt: -1 });
         const safe = incidents.map((i) => sanitizeIncidentForCaller(i, req.user));
         return res.json({ success: true, count: safe.length, data: safe });
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
     const MemoryStore = require("../utils/memoryStore");
     const memInc = MemoryStore.getIncidents()
       .filter((i) => i.roadId === req.params.roadId)
       .map((i) => sanitizeIncidentForCaller(i, req.user));
     return res.json({ success: true, count: memInc.length, data: memInc });
-  } catch (error) {
+  } catch {
     return res.json({ success: true, count: 0, data: [] });
   }
 });
@@ -1436,7 +1436,7 @@ router.post('/weather', async (req, res) => {
     const weather = new Weather({ location, city, state, temperature, humidity, rainfall, windSpeed, condition, visibility });
     const saved = await weather.save();
     return res.status(201).json({ success: true, data: saved });
-  } catch (error) { return res.status(500).json({ success: false, message: 'Failed to save weather.' }); }
+  } catch { return res.status(500).json({ success: false, message: 'Failed to save weather.' }); }
 });
 
 // INCIDENTS - POST upvote / community verification
@@ -1473,7 +1473,7 @@ router.get('/reverse-geocode', async (req, res) => {
     }
     const result = await reverseGeocode(lat, lon);
     return res.json({ success: true, data: result });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, message: 'Reverse geocode failed.' });
   }
 });
@@ -1486,7 +1486,7 @@ router.get('/nearby-services', async (req, res) => {
     const radius = Math.min(15000, Math.max(1000, Number(req.query.radius) || 5000));
     const result = await fetchNearbyEmergencyServices(lat, lon, radius);
     return res.json({ success: true, data: result });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, message: 'Failed to load nearby services.' });
   }
 });
@@ -1542,7 +1542,7 @@ router.get('/live-feed', async (req, res) => {
         const results = await Promise.all(queries);
         [activeIncidents, totalSegments, totalTrafficRecords] = results;
         cityActiveIncidents = results[3] !== undefined ? results[3] : activeIncidents;
-      } catch (e) {}
+      } catch { /* no-op */ }
     } else {
       const MemoryStore = require("../utils/memoryStore");
       const allActive = MemoryStore.getIncidents();
@@ -1563,7 +1563,7 @@ router.get('/live-feed', async (req, res) => {
         serverTimestamp: new Date().toISOString()
       }
     });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, message: 'Live feed unavailable.' });
   }
 });

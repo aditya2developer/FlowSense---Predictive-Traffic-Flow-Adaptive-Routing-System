@@ -26,8 +26,10 @@ async function apiFetch(endpoint, options = {}, timeoutMs = 8000) {
     clearTimeout(timeoutId);
 
     const data = await response.json().catch(() => ({
-      success: response.ok,
-      message: response.ok ? "OK" : `HTTP Error ${response.status}`
+      success: false,
+      message: response.ok
+        ? "Unexpected non-JSON response from API server."
+        : `HTTP Error ${response.status}`
     }));
 
     if (data && typeof data === "object" && !Array.isArray(data) && !("httpStatus" in data)) {
@@ -49,7 +51,7 @@ async function apiFetch(endpoint, options = {}, timeoutMs = 8000) {
 // ==========================================
 
 export async function fetchCaptcha() {
-  return apiFetch("/api/auth/captcha", {}, 5000);
+  return apiFetch("/api/auth/captcha", { cache: "no-store" }, 30000);
 }
 
 export async function sendOtp(email, purpose = "REGISTER") {
@@ -57,7 +59,7 @@ export async function sendOtp(email, purpose = "REGISTER") {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, purpose })
-  }, 6000);
+  }, 25000);
 }
 
 export async function loginUser(email, password, role, captchaToken, captchaAnswer) {
@@ -65,7 +67,7 @@ export async function loginUser(email, password, role, captchaToken, captchaAnsw
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, role, captchaToken, captchaAnswer })
-  });
+  }, 20000);
 }
 
 export async function registerUser(userData) {
@@ -73,7 +75,7 @@ export async function registerUser(userData) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData)
-  }, 12000);
+  }, 25000);
 }
 
 export async function updateUserProfile(profileData) {
@@ -89,7 +91,7 @@ export async function changeUserPassword(payload) {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify(payload)
-  }, 8000);
+  }, 15000);
 }
 
 export async function resetUserPassword(payload) {
@@ -97,19 +99,19 @@ export async function resetUserPassword(payload) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  }, 8000);
+  }, 20000);
 }
 
 export async function fetchMyReports() {
   return apiFetch("/api/auth/my-reports", {
     headers: getAuthHeaders()
-  }, 6000);
+  }, 10000);
 }
 
 export async function fetchCurrentUser() {
   return apiFetch("/api/auth/me", {
     headers: getAuthHeaders()
-  }, 4000);
+  }, 12000);
 }
 
 // ==========================================

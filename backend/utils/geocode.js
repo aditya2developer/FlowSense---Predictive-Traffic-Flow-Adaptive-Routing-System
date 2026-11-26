@@ -499,7 +499,7 @@ async function queryPhoton(locationQuery) {
       }
     }
     return null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -538,7 +538,7 @@ async function queryNominatim(locationQuery) {
       };
     }
     return null;
-  } catch (e) {
+  } catch {
     return null;
   }
 }

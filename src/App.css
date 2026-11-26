@@ -7369,8 +7369,37 @@ body {
 
 .captcha-placeholder {
   font-size: 11px;
-  color: #64748b;
+  color: #94a3b8;
   padding: 0 12px;
+  text-align: center;
+}
+
+.captcha-retry-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: rgba(244, 63, 94, 0.14);
+  color: #fda4af;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 12px;
+}
+
+.captcha-retry-inline:hover {
+  background: rgba(244, 63, 94, 0.25);
+  color: #ffffff;
+}
+
+.captcha-error-note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: #fda4af;
+  line-height: 1.4;
 }
 
 .captcha-text-input {

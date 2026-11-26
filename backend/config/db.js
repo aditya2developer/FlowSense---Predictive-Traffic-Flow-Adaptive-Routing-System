@@ -34,7 +34,7 @@ const connectDB = async () => {
       global.mongoConnectionError = null;
       console.log(`✅ Connected using local MongoDB fallback: ${localFallback}`);
       return;
-    } catch (fallbackError) {
+    } catch {
       // In-memory fallback
     }
 

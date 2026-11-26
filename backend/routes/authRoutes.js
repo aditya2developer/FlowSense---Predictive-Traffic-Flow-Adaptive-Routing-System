@@ -105,7 +105,7 @@ async function verifyStoredOTP(email, otpCode, purpose) {
         deleteMemoryOTP(cleanEmail, purpose);
         return { valid: true };
       }
-    } catch (e) {
+    } catch {
       // Fall through to memory cache check
     }
   }
@@ -137,6 +137,7 @@ router.get("/demo-users", (req, res) => {
 // Real-time SVG Cyber CAPTCHA challenge
 // ==========================================
 router.get("/captcha", (req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   const challenge = generateCaptchaChallenge();
   return res.json({
     success: true,
@@ -172,7 +173,7 @@ router.post("/send-otp", async (req, res) => {
               message: "This email is already registered. Please sign in or reset your password."
             });
           }
-        } catch (e) {}
+        } catch { /* no-op */ }
       } else if (MemoryStore.findUserByEmail(cleanEmail)) {
         return res.status(400).json({
           success: false,
@@ -186,7 +187,7 @@ router.post("/send-otp", async (req, res) => {
       if (global.isMongoConnected) {
         try {
           existingUser = await User.findOne({ email: cleanEmail });
-        } catch (e) {}
+        } catch { /* no-op */ }
       }
       if (!existingUser) {
         existingUser = MemoryStore.findUserByEmail(cleanEmail);
@@ -223,7 +224,7 @@ router.post("/send-otp", async (req, res) => {
           purpose,
           expiresAt
         });
-      } catch (e) {
+      } catch {
         // Memory cache saved below
       }
     }
@@ -274,7 +275,7 @@ router.post("/login", async (req, res) => {
     if (global.isMongoConnected) {
       try {
         user = await User.findOne({ email: cleanEmail });
-      } catch (e) {
+      } catch {
         user = null;
       }
     }
@@ -347,7 +348,7 @@ router.post("/login", async (req, res) => {
       try {
         user.lastLoginAt = new Date();
         await user.save();
-      } catch (e) {}
+      } catch { /* no-op */ }
     }
 
     const token = jwt.sign(
@@ -591,7 +592,7 @@ router.patch("/active-location", authenticate, async (req, res) => {
       lastActiveState: state
     });
     return res.json({ success: true, user: formatSafeUser(mem || req.user) });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, message: "Failed to sync active city." });
   }
 });
@@ -818,7 +819,7 @@ router.post("/reset-password", async (req, res) => {
       success: true,
       message: "Password reset complete! You can now sign in with your new password."
     });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, message: "Password reset failed." });
   }
 });
@@ -844,7 +845,7 @@ router.get("/my-reports", authenticate, async (req, res) => {
         inc.reportedBy === req.user.name
     );
     return res.json({ success: true, data: memReports });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ success: false, message: "Failed to load user reports." });
   }
 });

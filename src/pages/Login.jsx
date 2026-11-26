@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useCity } from "../context/CityContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -127,6 +127,9 @@ function Login() {
   const [captchaSvgUrl, setCaptchaSvgUrl] = useState("");
   const [captchaAnswer, setCaptchaAnswer] = useState("");
   const [loadingCaptcha, setLoadingCaptcha] = useState(false);
+  const [captchaError, setCaptchaError] = useState("");
+  const captchaReqIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   // Email OTP
   const [otpCode, setOtpCode] = useState("");
@@ -140,39 +143,58 @@ function Login() {
 
   const availableCities = getCitiesForState(stateName);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const loadCaptchaChallenge = useCallback(async () => {
+    const reqId = ++captchaReqIdRef.current;
     setLoadingCaptcha(true);
-    try {
-      const res = await fetchCaptcha();
-      if (res.success && res.captchaToken && res.svgDataUrl) {
-        setCaptchaToken(res.captchaToken);
-        setCaptchaSvgUrl(res.svgDataUrl);
-        setCaptchaAnswer("");
+    setCaptchaError("");
+    setCaptchaToken("");
+    setCaptchaSvgUrl("");
+
+    const maxAttempts = 3;
+    let lastError = "Unable to load security CAPTCHA from server.";
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetchCaptcha();
+        if (!mountedRef.current || captchaReqIdRef.current !== reqId) return;
+
+        if (res.success && res.captchaToken && res.svgDataUrl) {
+          setCaptchaToken(res.captchaToken);
+          setCaptchaSvgUrl(res.svgDataUrl);
+          setCaptchaAnswer("");
+          setCaptchaError("");
+          setLoadingCaptcha(false);
+          return;
+        }
+        lastError = res.message || lastError;
+      } catch (err) {
+        lastError = err?.message || lastError;
       }
-    } catch {
-      // ignore initial error
-    } finally {
+
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, attempt * 1500));
+        if (!mountedRef.current || captchaReqIdRef.current !== reqId) return;
+      }
+    }
+
+    if (mountedRef.current && captchaReqIdRef.current === reqId) {
+      setCaptchaError(`${lastError} Click "Retry CAPTCHA" or "New Code" to try again.`);
       setLoadingCaptcha(false);
     }
   }, []);
 
   useEffect(() => {
-    let active = true;
     if (mode !== "forgot") {
-      fetchCaptcha()
-        .then((res) => {
-          if (active && res.success && res.captchaToken && res.svgDataUrl) {
-            setCaptchaToken(res.captchaToken);
-            setCaptchaSvgUrl(res.svgDataUrl);
-            setCaptchaAnswer("");
-          }
-        })
-        .catch(() => {});
+      startTransition(() => { loadCaptchaChallenge(); });
     }
-    return () => {
-      active = false;
-    };
-  }, [mode]);
+  }, [mode, loadCaptchaChallenge]);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -255,7 +277,13 @@ function Login() {
     setError("");
     setSuccessMsg("");
 
-    if (!captchaToken || !captchaAnswer.trim()) {
+    if (!captchaToken || !captchaSvgUrl) {
+      setError("Security CAPTCHA is not loaded yet. Reloading challenge now...");
+      loadCaptchaChallenge();
+      return;
+    }
+
+    if (!captchaAnswer.trim()) {
       setError("Please enter the security CAPTCHA characters shown above.");
       return;
     }
@@ -339,7 +367,13 @@ function Login() {
       }
     }
 
-    if (!captchaToken || !captchaAnswer.trim()) {
+    if (!captchaToken || !captchaSvgUrl) {
+      setError("Security CAPTCHA is not loaded yet. Reloading challenge now...");
+      loadCaptchaChallenge();
+      return;
+    }
+
+    if (!captchaAnswer.trim()) {
       setError("Please complete the CAPTCHA verification.");
       return;
     }
@@ -603,6 +637,7 @@ function Login() {
                 setCaptchaAnswer={setCaptchaAnswer}
                 onRefresh={loadCaptchaChallenge}
                 loadingCaptcha={loadingCaptcha}
+                captchaError={captchaError}
               />
 
               <button
@@ -968,6 +1003,7 @@ function Login() {
                 setCaptchaAnswer={setCaptchaAnswer}
                 onRefresh={loadCaptchaChallenge}
                 loadingCaptcha={loadingCaptcha}
+                captchaError={captchaError}
               />
 
               <button

@@ -22,7 +22,7 @@ router.get("/advisories", async (req, res) => {
           count: advisories.length,
           data: advisories
         });
-      } catch (e) {
+      } catch {
         // Fall back to MemoryStore
       }
     }
@@ -32,7 +32,7 @@ router.get("/advisories", async (req, res) => {
       count: memAdvisories.length,
       data: memAdvisories
     });
-  } catch (error) {
+  } catch {
     const memAdvisories = MemoryStore.getAdvisories();
     return res.json({ success: true, count: memAdvisories.length, data: memAdvisories });
   }
@@ -184,7 +184,7 @@ router.get("/enforcement-stats", authenticate, requireRole("AUTHORITY", "ADMIN")
         activeIncidents = await Incident.find(filter);
         const segments = await RoadSegment.find({});
         segmentsCount = segments.length;
-      } catch (e) {
+      } catch {
         activeIncidents = MemoryStore.getIncidents(city);
         segmentsCount = MemoryStore.getAllRoads().length;
       }

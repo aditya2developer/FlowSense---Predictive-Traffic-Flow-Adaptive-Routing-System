@@ -20,7 +20,7 @@ async function authenticate(req, res, next) {
     if (global.isMongoConnected) {
       try {
         user = await User.findById(decoded.id).select("-password");
-      } catch (err) {
+      } catch {
         user = null;
       }
     }
@@ -39,7 +39,7 @@ async function authenticate(req, res, next) {
 
     req.user = user;
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({
       success: false,
       message: "Invalid or expired token."
@@ -82,7 +82,7 @@ async function optionalAuthenticate(req, res, next) {
     if (global.isMongoConnected) {
       try {
         user = await User.findById(decoded.id).select("-password");
-      } catch (err) {
+      } catch {
         user = null;
       }
     }

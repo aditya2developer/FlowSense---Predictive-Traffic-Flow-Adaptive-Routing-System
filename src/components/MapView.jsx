@@ -1,7 +1,6 @@
 import {
   MapContainer,
   TileLayer,
-  Marker,
   Popup,
   Polyline,
   CircleMarker,
@@ -9,7 +8,7 @@ import {
 } from "react-leaflet";
 import { useEffect, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { Navigation, Compass, Radio, Shield, Sparkles, Layers, Eye } from "lucide-react";
+import { Radio, Sparkles, Layers } from "lucide-react";
 
 const ROUTE_COLORS = [
   "#10b981", // Recommended (Emerald neon)
@@ -67,8 +66,7 @@ function MapView({
   routes = [],
   locations = null,
   selectedRouteId = null,
-  onSelectRoute = null,
-  incidents = []
+  onSelectRoute = null
 }) {
   const defaultCenter = [31.3260, 75.5762]; // Jalandhar default center
   const [mapTheme, setMapTheme] = useState("dark"); // "dark" | "osm"

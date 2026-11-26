@@ -19,6 +19,9 @@ const errorHandler = require("./middleware/errorHandler");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Render & reverse-proxy support so express-rate-limit identifies client IPs accurately
+app.set("trust proxy", 1);
+
 // Connect to MongoDB
 connectDB();
 

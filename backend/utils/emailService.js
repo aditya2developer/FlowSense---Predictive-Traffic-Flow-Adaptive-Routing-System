@@ -144,7 +144,7 @@ async function getEmailConfigStatus() {
 }
 
 async function saveEmailGatewayConfig(payload = {}, updatedBy = "Admin") {
-  let existing = {};
+  let existing;
   if (global.isMongoConnected) {
     existing = (await SystemConfig.findOne({ key: EMAIL_CONFIG_KEY }).lean()) || {};
   } else {
