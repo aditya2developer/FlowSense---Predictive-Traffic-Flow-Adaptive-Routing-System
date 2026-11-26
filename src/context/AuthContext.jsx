@@ -6,6 +6,15 @@ import {
   updateUserProfile,
   changeUserPassword
 } from "../api";
+import {
+  getTabToken,
+  getTabUserRaw,
+  getTabVerifiedAt,
+  saveTabSession,
+  updateTabUser,
+  updateTabVerifiedAt,
+  clearTabSession
+} from "../utils/tabSession";
 
 const AuthContext = createContext(null);
 
@@ -31,20 +40,17 @@ function isTokenStructurallyValid(tok) {
 
 function readInitialSession() {
   try {
-    const savedToken = localStorage.getItem("flowsense_token");
-    const savedUser = localStorage.getItem("flowsense_user");
+    const savedToken = getTabToken();
+    const savedUser = getTabUserRaw();
     if (!savedToken || !isTokenStructurallyValid(savedToken) || !savedUser) {
-      localStorage.removeItem("flowsense_token");
-      localStorage.removeItem("flowsense_user");
+      clearTabSession();
       return { token: null, user: null, freshEnough: false };
     }
-    // Check if this session was recently verified — skip backend round-trip if so
-    const verifiedAt = Number(localStorage.getItem("flowsense_verified_at") || "0");
+    const verifiedAt = getTabVerifiedAt();
     const freshEnough = Date.now() - verifiedAt < SESSION_TRUST_MS;
     return { token: savedToken, user: JSON.parse(savedUser), freshEnough };
   } catch {
-    localStorage.removeItem("flowsense_token");
-    localStorage.removeItem("flowsense_user");
+    clearTabSession();
     return { token: null, user: null, freshEnough: false };
   }
 }
@@ -53,13 +59,13 @@ export function AuthProvider({ children }) {
   const [initialSession] = useState(readInitialSession);
   const [user, setUser] = useState(initialSession.user);
   const [token, setToken] = useState(initialSession.token);
-  // If session is fresh enough (recently verified), skip loading state entirely
+  // If this tab's session was verified recently, render immediately across reloads
   const [loading, setLoading] = useState(
     Boolean(initialSession.token) && !initialSession.freshEnough
   );
   const verifiedTokenRef = useRef(initialSession.freshEnough ? initialSession.token : null);
 
-  // Verify stored token with backend — skipped if recently verified (multi-tab instant open)
+  // Verify this tab's stored token with backend when stale
   useEffect(() => {
     if (!token || verifiedTokenRef.current === token) return undefined;
     let active = true;
@@ -69,18 +75,16 @@ export function AuthProvider({ children }) {
         if (!active) return;
         if (res.success && res.user) {
           verifiedTokenRef.current = token;
-          localStorage.setItem("flowsense_verified_at", String(Date.now()));
+          updateTabVerifiedAt();
           setUser(res.user);
-          localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+          updateTabUser(res.user);
         } else if (res.httpStatus === 401 || res.httpStatus === 403 || !isTokenStructurallyValid(token)) {
           verifiedTokenRef.current = null;
-          localStorage.removeItem("flowsense_verified_at");
           setUser(null);
           setToken(null);
-          localStorage.removeItem("flowsense_token");
-          localStorage.removeItem("flowsense_user");
+          clearTabSession();
         }
-        // On network errors / 5xx — keep the cached user, don't lock the user out
+        // On network errors / 5xx — keep this tab's cached user
       })
       .catch(() => {})
       .finally(() => {
@@ -92,48 +96,15 @@ export function AuthProvider({ children }) {
     };
   }, [token]);
 
-  // Listen for login / logout changes in other tabs (storage event) — keep all tabs in sync cleanly
-  useEffect(() => {
-    function onStorage(e) {
-      if (e.key === "flowsense_token" && !e.newValue) {
-        // Another tab cleared the token (logout) — mirror it here
-        verifiedTokenRef.current = null;
-        setUser(null);
-        setToken(null);
-        setLoading(false);
-        return;
-      }
-      if (e.key === "flowsense_token" && e.newValue && e.newValue !== token) {
-        // Another tab logged in — sync session state cleanly without jarring full reload
-        try {
-          const savedUser = localStorage.getItem("flowsense_user");
-          const parsedUser = savedUser ? JSON.parse(savedUser) : null;
-          if (parsedUser && isTokenStructurallyValid(e.newValue)) {
-            verifiedTokenRef.current = e.newValue;
-            setToken(e.newValue);
-            setUser(parsedUser);
-            setLoading(false);
-            return;
-          }
-        } catch {
-          // fallback below
-        }
-        window.location.reload();
-      }
-    }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [token]);
-
   async function refreshUser() {
     if (!token) return null;
     try {
       const res = await fetchCurrentUser();
       if (res.success && res.user) {
         verifiedTokenRef.current = token;
-        localStorage.setItem("flowsense_verified_at", String(Date.now()));
+        updateTabVerifiedAt();
         setUser(res.user);
-        localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+        updateTabUser(res.user);
         return res.user;
       }
       if (res.httpStatus === 401 || res.httpStatus === 403) {
@@ -145,7 +116,7 @@ export function AuthProvider({ children }) {
     return null;
   }
 
-  // Real-time Authentication against MongoDB with CAPTCHA
+  // Real-time Authentication against MongoDB with CAPTCHA (scoped strictly to this tab)
   async function login(email, password, role, captchaToken, captchaAnswer) {
     const res = await loginUser(email, password, role, captchaToken, captchaAnswer);
     if (res.success && res.token && res.user) {
@@ -153,14 +124,12 @@ export function AuthProvider({ children }) {
       setUser(res.user);
       setToken(res.token);
       setLoading(false);
-      localStorage.setItem("flowsense_token", res.token);
-      localStorage.setItem("flowsense_user", JSON.stringify(res.user));
-      localStorage.setItem("flowsense_verified_at", String(Date.now()));
+      saveTabSession(res.token, res.user);
     }
     return res;
   }
 
-  // Real-time Confidential User Registration directly saved to MongoDB
+  // Real-time Confidential User Registration directly saved to MongoDB (scoped to this tab)
   async function register(userData) {
     const res = await registerUser(userData);
     if (res.success && res.token && res.user) {
@@ -168,9 +137,7 @@ export function AuthProvider({ children }) {
       setUser(res.user);
       setToken(res.token);
       setLoading(false);
-      localStorage.setItem("flowsense_token", res.token);
-      localStorage.setItem("flowsense_user", JSON.stringify(res.user));
-      localStorage.setItem("flowsense_verified_at", String(Date.now()));
+      saveTabSession(res.token, res.user);
     }
     return res;
   }
@@ -180,7 +147,7 @@ export function AuthProvider({ children }) {
     const res = await updateUserProfile(profileData);
     if (res.success && res.user) {
       setUser(res.user);
-      localStorage.setItem("flowsense_user", JSON.stringify(res.user));
+      updateTabUser(res.user);
     }
     return res;
   }
@@ -194,14 +161,13 @@ export function AuthProvider({ children }) {
     return res;
   }
 
+  // Clear ONLY this tab's session — other open tabs stay completely unaffected
   function logout() {
     verifiedTokenRef.current = null;
     setUser(null);
     setToken(null);
     setLoading(false);
-    localStorage.removeItem("flowsense_token");
-    localStorage.removeItem("flowsense_user");
-    localStorage.removeItem("flowsense_verified_at");
+    clearTabSession();
   }
 
   const isAuthenticated = Boolean(user && token);

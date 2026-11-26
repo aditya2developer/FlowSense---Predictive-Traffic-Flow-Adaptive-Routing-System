@@ -4,10 +4,12 @@
  * Features built-in timeout handling to ensure smooth, non-blocking user experience.
  */
 
+import { getTabToken } from "./utils/tabSession";
+
 const BASE_URL = import.meta.env.VITE_API_URL || "";
 
 function getAuthHeaders() {
-  const token = localStorage.getItem("flowsense_token");
+  const token = getTabToken();
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -111,7 +113,7 @@ export async function fetchMyReports() {
 export async function fetchCurrentUser() {
   return apiFetch("/api/auth/me", {
     headers: getAuthHeaders()
-  }, 12000);
+  }, 25000);
 }
 
 // ==========================================

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState } from "react";
 import { findCityEntry } from "../utils/indiaLocations";
 import { reverseGeocodeCoords, updateActiveLocation } from "../api";
+import { getTabToken } from "../utils/tabSession";
 
 const CityContext = createContext(null);
 
@@ -8,7 +9,7 @@ const STORAGE_KEY = "flowsense_active_location";
 
 function getInitialLocationState() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = sessionStorage.getItem(STORAGE_KEY) || localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && parsed.city && parsed.state) {
@@ -45,12 +46,13 @@ export function CityProvider({ children }) {
     setLocation(next);
     setCityModalOpen(false);
     try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
       // ignore storage quota errors
     }
-    // fire-and-forget sync to MongoDB if user is authenticated
-    if (localStorage.getItem("flowsense_token")) {
+    // fire-and-forget sync to MongoDB if this tab is authenticated
+    if (getTabToken()) {
       updateActiveLocation(next.city, next.state).catch(() => {});
     }
   }
