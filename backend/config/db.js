@@ -7,6 +7,18 @@ const connectDB = async () => {
   // Prevent Mongoose from buffering queries indefinitely when disconnected
   mongoose.set("bufferCommands", false);
 
+  mongoose.connection.on("connected", () => {
+    global.isMongoConnected = true;
+    global.mongoConnectionError = null;
+  });
+  mongoose.connection.on("reconnected", () => {
+    global.isMongoConnected = true;
+    global.mongoConnectionError = null;
+  });
+  mongoose.connection.on("disconnected", () => {
+    global.isMongoConnected = false;
+  });
+
   const primaryUri = process.env.MONGO_URI || ATLAS_DEFAULT_URI;
 
   try {

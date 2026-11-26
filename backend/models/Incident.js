@@ -58,7 +58,9 @@ const incidentSchema = new mongoose.Schema(
     resolvedAt: { type: Date },
     verifiedBy: { type: String, default: "" },
     verifiedAt: { type: Date },
-    statusNote: { type: String, default: "" }
+    statusNote: { type: String, default: "" },
+    updatedBy: { type: String, default: "" },
+    lastUpdatedAt: { type: Date }
   },
   { timestamps: true }
 );

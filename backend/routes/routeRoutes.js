@@ -13,6 +13,12 @@ const { fetchRealTimeWeather } = require("../utils/liveWeather");
 const { reverseGeocode, fetchNearbyEmergencyServices, autocompleteLocationIndia } = require("../utils/realTimeServices");
 const generateRecommendations = require("../utils/recommendationEngine");
 const { authenticate, optionalAuthenticate, requireRole } = require("../middleware/auth");
+const {
+  ALLOWED_INCIDENT_TYPES,
+  ALLOWED_INCIDENT_SEVERITIES,
+  buildCityRegex,
+  buildIncidentStatusUpdate
+} = require("../utils/incidentHelpers");
 
 const router = express.Router();
 
@@ -1222,7 +1228,7 @@ router.get("/recent-searches", authenticate, async (req, res) => {
 });
 
 // INCIDENTS - POST /incidents (Allows anyone to report any hazard with AI recommendations)
-router.post('/incidents', async (req, res) => {
+router.post('/incidents', optionalAuthenticate, async (req, res) => {
   try {
     const {
       roadId,
@@ -1233,7 +1239,7 @@ router.post('/incidents', async (req, res) => {
       severity = 'MEDIUM',
       description = '',
       landmark = '',
-      reportedBy = 'Citizen Commuter',
+      reportedBy = '',
       reporterEmail = '',
       contactPhone = '',
       location = '',
@@ -1243,15 +1249,13 @@ router.post('/incidents', async (req, res) => {
 
     const cleanRoadId = roadId && roadId.trim() ? roadId.trim() : `HAZ_${Date.now().toString(36).toUpperCase()}`;
     const cleanRoadName = roadName && roadName.trim() ? roadName.trim() : (location || `${city} Road Hazard`);
+    const finalReporterName = String(reportedBy || '').trim() || req.user?.name || 'Citizen Commuter';
+    const finalReporterEmail = String(reporterEmail || req.user?.email || '').trim().toLowerCase();
 
-    const ALLOWED_TYPES = new Set([
-      'ACCIDENT', 'CONSTRUCTION', 'FLOOD', 'WATERLOGGING', 'BREAKDOWN',
-      'POTHOLE', 'TRAFFIC_JAM', 'ROADBLOCK', 'FIRE_HAZARD', 'STALLED_VEHICLE', 'DEBRIS', 'OTHER'
-    ]);
     const rawType = String(type || 'ACCIDENT').trim().toUpperCase().replace(/[\s-]+/g, '_');
-    const normalizedType = ALLOWED_TYPES.has(rawType) ? rawType : 'OTHER';
+    const normalizedType = ALLOWED_INCIDENT_TYPES.has(rawType) ? rawType : 'OTHER';
     const rawSev = String(severity || 'MEDIUM').trim().toUpperCase();
-    const normalizedSeverity = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(rawSev) ? rawSev : 'MEDIUM';
+    const normalizedSeverity = ALLOWED_INCIDENT_SEVERITIES.has(rawSev) ? rawSev : 'MEDIUM';
 
     // Generate intelligent AI recommendations for both Commuter safety & Police response
     const { driverRecommendation, policeActionPlan } = generateRecommendations(
@@ -1273,8 +1277,8 @@ router.post('/incidents', async (req, res) => {
         description: description.trim(),
         landmark: landmark.trim(),
         recommendation: driverRecommendation,
-        reportedBy: reportedBy.trim() || 'Citizen Commuter',
-        reporterEmail: String(reporterEmail || '').trim().toLowerCase(),
+        reportedBy: finalReporterName,
+        reporterEmail: finalReporterEmail,
         contactPhone: contactPhone.trim(),
         location: location.trim() || cleanRoadName,
         images: Array.isArray(images) ? images.slice(0, 3) : [],
@@ -1295,8 +1299,8 @@ router.post('/incidents', async (req, res) => {
         description: description.trim(),
         landmark: landmark.trim(),
         recommendation: driverRecommendation,
-        reportedBy: reportedBy.trim() || 'Citizen Commuter',
-        reporterEmail: String(reporterEmail || '').trim().toLowerCase(),
+        reportedBy: finalReporterName,
+        reporterEmail: finalReporterEmail,
         contactPhone: contactPhone.trim(),
         location: location.trim() || cleanRoadName,
         images: Array.isArray(images) ? images.slice(0, 3) : [],
@@ -1318,8 +1322,8 @@ router.post('/incidents', async (req, res) => {
 });
 
 // INCIDENTS - GET all (Supports ?city=Delhi & ?status=ACTIVE|RESOLVED|VERIFIED|ALL)
-// AUTHORITY/ADMIN: defaults to ALL statuses when no status param.
-// PUBLIC/unauthenticated: defaults to ACTIVE only.
+// ?status=ALL returns all statuses for ANY role (Public, Authority, Admin).
+// Without status param: AUTHORITY/ADMIN get ALL statuses; PUBLIC/unauthenticated get ACTIVE only.
 router.get('/incidents', optionalAuthenticate, async (req, res) => {
   try {
     const { city, status } = req.query;
@@ -1333,9 +1337,9 @@ router.get('/incidents', optionalAuthenticate, async (req, res) => {
         } else if (!status && !isPrivileged) {
           filter.status = 'ACTIVE';
         }
-        // If isPrivileged and no status param → no status filter → returns all statuses
-        if (city && city.toLowerCase() !== 'all' && city.toLowerCase() !== 'all cities' && city.toLowerCase() !== 'national') {
-          filter.city = new RegExp(city.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        const cityRegex = buildCityRegex(city);
+        if (cityRegex) {
+          filter.$or = [{ city: cityRegex }, { state: cityRegex }];
         }
         const incidents = await Incident.find(filter).sort({ reportedAt: -1 }).limit(200);
         const safe = incidents.map((i) => sanitizeIncidentForCaller(i, req.user));
@@ -1344,11 +1348,12 @@ router.get('/incidents', optionalAuthenticate, async (req, res) => {
     }
 
     const MemoryStore = require("../utils/memoryStore");
-    const memInc = MemoryStore.getIncidents(city).map((i) => sanitizeIncidentForCaller(i, req.user));
+    const memStatusFilter = status ? status.toUpperCase() : (isPrivileged ? 'ALL' : 'ACTIVE');
+    const memInc = MemoryStore.getIncidents(city, memStatusFilter).map((i) => sanitizeIncidentForCaller(i, req.user));
     return res.json({ success: true, count: memInc.length, data: memInc });
   } catch {
     const MemoryStore = require("../utils/memoryStore");
-    const memInc = MemoryStore.getIncidents(req.query?.city).map((i) => sanitizeIncidentForCaller(i, req.user));
+    const memInc = MemoryStore.getIncidents(req.query?.city, 'ACTIVE').map((i) => sanitizeIncidentForCaller(i, req.user));
     return res.json({ success: true, count: memInc.length, data: memInc });
   }
 });
@@ -1402,15 +1407,22 @@ router.get('/incidents/road/:roadId', optionalAuthenticate, async (req, res) => 
 // INCIDENTS - PATCH resolve (Authority / Admin) [kept for backward compat]
 router.patch('/incidents/:id/resolve', authenticate, requireRole('AUTHORITY', 'ADMIN'), async (req, res) => {
   try {
+    const actorName = req.user?.name || req.user?.email || 'Official';
+    const { updateFields } = buildIncidentStatusUpdate('RESOLVED', actorName, req.body?.note || '');
+
     if (global.isMongoConnected) {
-      const incident = await Incident.findByIdAndUpdate(req.params.id, { status: 'RESOLVED' }, { new: true });
+      const incident = await Incident.findByIdAndUpdate(
+        req.params.id,
+        updateFields,
+        { new: true, runValidators: true }
+      );
       if (!incident) {
         return res.status(404).json({ success: false, message: 'Incident not found.' });
       }
       return res.json({ success: true, message: 'Incident resolved.', data: incident });
     }
     const MemoryStore = require("../utils/memoryStore");
-    const memInc = MemoryStore.updateIncidentStatus(req.params.id, 'RESOLVED');
+    const memInc = MemoryStore.updateIncidentStatus(req.params.id, 'RESOLVED', updateFields);
     if (!memInc) {
       return res.status(404).json({ success: false, message: 'Incident not found.' });
     }
@@ -1423,38 +1435,125 @@ router.patch('/incidents/:id/resolve', authenticate, requireRole('AUTHORITY', 'A
 // INCIDENTS - PATCH status (Authority / Admin) — full status lifecycle
 router.patch('/incidents/:id/status', authenticate, requireRole('AUTHORITY', 'ADMIN'), async (req, res) => {
   try {
-    const VALID_STATUSES = ['ACTIVE', 'RESOLVED', 'VERIFIED'];
-    const rawStatus = String(req.body?.status || '').toUpperCase().trim();
-    if (!VALID_STATUSES.includes(rawStatus)) {
-      return res.status(400).json({ success: false, message: `status must be one of: ${VALID_STATUSES.join(', ')}` });
-    }
-    const note = String(req.body?.note || '').trim();
     const actorName = req.user?.name || req.user?.email || 'Official';
-
-    const updateFields = { status: rawStatus, statusNote: note };
-    if (rawStatus === 'RESOLVED') {
-      updateFields.resolvedBy = actorName;
-      updateFields.resolvedAt = new Date();
-    } else if (rawStatus === 'VERIFIED') {
-      updateFields.verifiedBy = actorName;
-      updateFields.verifiedAt = new Date();
+    const result = buildIncidentStatusUpdate(req.body?.status, actorName, req.body?.note);
+    if (result.error) {
+      return res.status(400).json({ success: false, message: result.error });
     }
+    const { rawStatus, updateFields } = result;
 
     if (global.isMongoConnected) {
-      const incident = await Incident.findByIdAndUpdate(req.params.id, updateFields, { new: true });
+      const incident = await Incident.findByIdAndUpdate(
+        req.params.id,
+        updateFields,
+        { new: true, runValidators: true }
+      );
       if (!incident) {
         return res.status(404).json({ success: false, message: 'Incident not found.' });
       }
       return res.json({ success: true, message: `Incident marked ${rawStatus}.`, data: incident });
     }
     const MemoryStore = require("../utils/memoryStore");
-    const memInc = MemoryStore.updateIncidentStatus(req.params.id, rawStatus);
+    const memInc = MemoryStore.updateIncidentStatus(req.params.id, rawStatus, updateFields);
     if (!memInc) {
       return res.status(404).json({ success: false, message: 'Incident not found.' });
     }
     return res.json({ success: true, message: `Incident marked ${rawStatus}.`, data: memInc });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to update incident status: ' + error.message });
+  }
+});
+
+// INCIDENTS - PATCH /:id (Authority, Admin, or original authenticated reporter can update hazard details)
+router.patch('/incidents/:id', authenticate, async (req, res) => {
+  try {
+    const isPrivileged = req.user && ['AUTHORITY', 'ADMIN'].includes(req.user.role);
+    const actorName = req.user?.name || req.user?.email || 'User';
+    const body = req.body || {};
+
+    let existing = null;
+    if (global.isMongoConnected) {
+      existing = await Incident.findById(req.params.id);
+    } else {
+      const MemoryStore = require("../utils/memoryStore");
+      existing = MemoryStore.getAllIncidentsRaw().find((i) => String(i._id) === String(req.params.id)) || null;
+    }
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Incident not found.' });
+    }
+
+    const isOwner =
+      req.user?.email &&
+      existing.reporterEmail &&
+      existing.reporterEmail.toLowerCase() === req.user.email.toLowerCase();
+
+    if (!isPrivileged && !isOwner) {
+      return res.status(403).json({ success: false, message: 'Only Traffic Authority, Admin, or the original reporter can update this report.' });
+    }
+
+    const updates = {
+      updatedBy: actorName,
+      lastUpdatedAt: new Date()
+    };
+
+    if (typeof body.type === 'string' && body.type.trim()) {
+      const normType = body.type.trim().toUpperCase().replace(/[\s-]+/g, '_');
+      if (ALLOWED_INCIDENT_TYPES.has(normType)) updates.type = normType;
+    }
+    if (typeof body.severity === 'string' && body.severity.trim()) {
+      const normSev = body.severity.trim().toUpperCase();
+      if (ALLOWED_INCIDENT_SEVERITIES.has(normSev)) updates.severity = normSev;
+    }
+    if (typeof body.roadName === 'string' && body.roadName.trim()) updates.roadName = body.roadName.trim();
+    if (typeof body.city === 'string' && body.city.trim()) updates.city = body.city.trim();
+    if (typeof body.state === 'string') updates.state = body.state.trim();
+    if (typeof body.landmark === 'string') updates.landmark = body.landmark.trim();
+    if (typeof body.description === 'string') updates.description = body.description.trim();
+    if (typeof body.location === 'string' && body.location.trim()) updates.location = body.location.trim();
+
+    if (isPrivileged && typeof body.statusNote === 'string') {
+      updates.statusNote = body.statusNote.trim();
+    }
+    if (isPrivileged && typeof body.status === 'string' && body.status.trim()) {
+      const statusRes = buildIncidentStatusUpdate(body.status, actorName, body.statusNote ?? existing.statusNote);
+      if (statusRes.error) {
+        return res.status(400).json({ success: false, message: statusRes.error });
+      }
+      Object.assign(updates, statusRes.updateFields);
+    }
+
+    const nextType = updates.type || existing.type;
+    const nextSeverity = updates.severity || existing.severity;
+    const nextRoad = updates.roadName || existing.roadName;
+    const nextCity = updates.city || existing.city;
+    if (updates.type || updates.severity || updates.roadName || updates.city) {
+      const { driverRecommendation } = generateRecommendations(nextType, nextSeverity, nextRoad, nextCity);
+      updates.recommendation = driverRecommendation;
+    }
+
+    if (global.isMongoConnected) {
+      const saved = await Incident.findByIdAndUpdate(
+        req.params.id,
+        updates,
+        { new: true, runValidators: true }
+      );
+      return res.json({
+        success: true,
+        message: 'Hazard report updated in database.',
+        data: sanitizeIncidentForCaller(saved, req.user)
+      });
+    }
+
+    const MemoryStore = require("../utils/memoryStore");
+    const memSaved = MemoryStore.updateIncident(req.params.id, updates);
+    return res.json({
+      success: true,
+      message: 'Hazard report updated.',
+      data: sanitizeIncidentForCaller(memSaved, req.user)
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to update incident: ' + error.message });
   }
 });
 

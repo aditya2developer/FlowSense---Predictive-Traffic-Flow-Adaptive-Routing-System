@@ -9,7 +9,7 @@ import {
   fetchAdvisories,
   fetchLiveFeed,
   fetchNearbyServices,
-  fetchIncidents
+  fetchAllIncidentStatuses
 } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useCity } from "../context/CityContext";
@@ -86,10 +86,10 @@ function Home() {
         })
         .catch(() => {});
 
-      fetchIncidents(activeCity)
+      fetchAllIncidentStatuses(activeCity)
         .then((res) => {
           if (mounted && res.success && Array.isArray(res.data)) {
-            setCityIncidents(res.data.slice(0, 4));
+            setCityIncidents(res.data.slice(0, 6));
           }
         })
         .catch(() => {});
@@ -357,6 +357,11 @@ function Home() {
                   <span className={`severity-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
                     {inc.severity}
                   </span>
+                  <span style={{
+                    padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                    background: inc.status === "ACTIVE" ? "#ef444422" : inc.status === "RESOLVED" ? "#22c55e22" : "#3b82f622",
+                    color: inc.status === "ACTIVE" ? "#ef4444" : inc.status === "RESOLVED" ? "#22c55e" : "#3b82f6"
+                  }}>{inc.status || "ACTIVE"}</span>
                 </div>
                 <h4>{inc.roadName || inc.roadId}</h4>
                 <p className="report-card-loc">

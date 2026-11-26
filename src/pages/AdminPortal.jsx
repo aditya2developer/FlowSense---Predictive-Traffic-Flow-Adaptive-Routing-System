@@ -22,6 +22,7 @@ import {
 } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { soundAlert } from "../utils/soundAlert";
+import IncidentEditModal from "../components/IncidentEditModal";
 import {
   Shield,
   Database,
@@ -45,7 +46,8 @@ import {
   XCircle,
   ThumbsUp,
   Mail,
-  Send
+  Send,
+  Pencil
 } from "lucide-react";
 
 function AdminPortal() {
@@ -55,6 +57,9 @@ function AdminPortal() {
   const [segmentsList, setSegmentsList] = useState([]);
   const [incidentsList, setIncidentsList] = useState([]);
   const [incAdminFilter, setIncAdminFilter] = useState("ALL");
+  const [incCityFilter, setIncCityFilter] = useState("ALL");
+  const [incSearch, setIncSearch] = useState("");
+  const [editingIncident, setEditingIncident] = useState(null);
   const [, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview"); // overview, verification, segments, incidents, users, ml
   const [actionMsg, setActionMsg] = useState("");
@@ -145,8 +150,18 @@ function AdminPortal() {
       .finally(() => {
         if (active) setLoading(false);
       });
+
+    const interval = setInterval(() => {
+      fetchAdminIncidents()
+        .then((res) => {
+          if (active && res.success) setIncidentsList(res.data || []);
+        })
+        .catch(() => {});
+    }, 10000);
+
     return () => {
       active = false;
+      clearInterval(interval);
     };
   }, [isAdmin]);
 
@@ -294,12 +309,18 @@ function AdminPortal() {
   async function handleIncidentStatus(incidentId, status) {
     try {
       const res = await updateIncidentStatus(incidentId, status);
-      if (res.success) {
-        notify(`Incident status updated to ${status}.`);
+      if (res.success && res.data) {
+        setIncidentsList((prev) =>
+          prev.map((i) => (i._id === incidentId ? { ...i, ...res.data } : i))
+        );
+        notify(`Incident status updated to ${status} in database.`);
         loadAdminData();
+      } else {
+        alert(res.message || "Failed to update incident status in database.");
       }
     } catch (err) {
       console.error(err);
+      alert("Network error while updating incident status.");
     }
   }
 
@@ -1061,7 +1082,26 @@ function AdminPortal() {
             <div className="portal-card-header">
               <div>
                 <h2>Citizen Hazard Reports &amp; Traffic Incidents</h2>
-                <p>Review, verify, resolve, or remove road hazards submitted by citizens and traffic patrols.</p>
+                <p>Review, edit, verify, resolve, or remove road hazards submitted by citizens and traffic patrols.</p>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <select
+                  value={incCityFilter}
+                  onChange={(e) => setIncCityFilter(e.target.value)}
+                  style={{ padding: "6px 10px", borderRadius: 8, background: "#0f172a", color: "#f8fafc", border: "1px solid #334155", fontSize: 12 }}
+                >
+                  <option value="ALL">All Cities ({incidentsList.length})</option>
+                  {Array.from(new Set(incidentsList.map((i) => i.city).filter(Boolean))).sort().map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Search road, city, reporter..."
+                  value={incSearch}
+                  onChange={(e) => setIncSearch(e.target.value)}
+                  style={{ padding: "6px 10px", borderRadius: 8, background: "#0f172a", color: "#f8fafc", border: "1px solid #334155", fontSize: 12, minWidth: 180 }}
+                />
               </div>
             </div>
 
@@ -1089,117 +1129,140 @@ function AdminPortal() {
               })}
             </div>
 
-            <div className="admin-table-wrapper">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Location / Corridor</th>
-                    <th>Severity</th>
-                    <th>Description</th>
-                    <th>Reported By</th>
-                    <th>Status</th>
-                    <th>Review Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(incAdminFilter === "ALL" ? incidentsList : incidentsList.filter(i => i.status === incAdminFilter)).map((inc) => (
-                    <tr key={inc._id} style={{ opacity: inc.status !== "ACTIVE" ? 0.8 : 1 }}>
-                      <td>
-                        <span className="incident-type-tag">{inc.type}</span>
-                      </td>
-                      <td>
-                        <strong>{inc.roadName || inc.roadId}</strong>
-                        <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>{inc.location}</div>
-                        <div style={{ fontSize: "0.74rem", color: "#64748b" }}>{inc.city || ""}</div>
-                      </td>
-                      <td>
-                        <span className={`severity-tag sev-${inc.severity?.toLowerCase()}`}>
-                          {inc.severity}
-                        </span>
-                      </td>
-                      <td style={{ maxWidth: 260 }}>
-                        <div>{inc.description}</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "0.74rem", color: "#94a3b8", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                            <ThumbsUp size={11} /> {inc.upvotes || 1}
-                          </span>
-                          {Array.isArray(inc.images) &&
-                            inc.images.map((src, i) => (
-                              <img
-                                key={i}
-                                src={src}
-                                alt="Evidence"
-                                className="admin-inc-thumb"
-                                onClick={() => setLightboxImage(src)}
-                              />
-                            ))}
-                        </div>
-                      </td>
-                      <td>
-                        {inc.reportedBy || "Citizen"}
-                        {inc.reporterEmail && <div style={{ fontSize: "0.73rem", color: "#64748b" }}>{inc.reporterEmail}</div>}
-                      </td>
-                      <td>
-                        <span className={`status-pill status-${inc.status?.toLowerCase()}`}>
-                          {inc.status}
-                        </span>
-                        {inc.resolvedBy && <div style={{ fontSize: 10, color: "#22c55e", marginTop: 2 }}>by {inc.resolvedBy}</div>}
-                        {inc.verifiedBy && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2 }}>by {inc.verifiedBy}</div>}
-                        {inc.statusNote && <div style={{ fontSize: 10, color: "#94a3b8" }}>{inc.statusNote}</div>}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                          {inc.status !== "RESOLVED" && (
-                            <button
-                              type="button"
-                              className="btn-table-resolve"
-                              onClick={() => handleIncidentStatus(inc._id, "RESOLVED")}
-                            >
-                              <FileCheck2 size={13} /> Mark Resolved
-                            </button>
-                          )}
-                          {inc.status !== "VERIFIED" && (
-                            <button
-                              type="button"
-                              className="btn-table-resolve"
-                              onClick={() => handleIncidentStatus(inc._id, "VERIFIED")}
-                              style={{ background: "#3b82f622", color: "#3b82f6", border: "1px solid #3b82f655" }}
-                            >
-                              <ShieldCheck size={13} /> Mark Verified
-                            </button>
-                          )}
-                          {inc.status !== "ACTIVE" && (
-                            <button
-                              type="button"
-                              className="btn-table-resolve"
-                              onClick={() => handleIncidentStatus(inc._id, "ACTIVE")}
-                              style={{ background: "#ef444422", color: "#ef4444", border: "1px solid #ef444455" }}
-                            >
-                              ↩ Reopen
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="btn-table-delete"
-                            onClick={() => handleDeleteIncident(inc._id)}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {incidentsList.length === 0 && (
-                    <tr>
-                      <td colSpan={7} style={{ textAlign: "center", padding: 24, color: "#94a3b8" }}>
-                        No incidents currently registered.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {(() => {
+              const q = incSearch.trim().toLowerCase();
+              const filteredIncidents = incidentsList.filter((i) => {
+                if (incAdminFilter !== "ALL" && i.status !== incAdminFilter) return false;
+                if (incCityFilter !== "ALL" && i.city !== incCityFilter) return false;
+                if (q) {
+                  const hay = `${i.roadName || ""} ${i.city || ""} ${i.location || ""} ${i.description || ""} ${i.reportedBy || ""} ${i.type || ""}`.toLowerCase();
+                  if (!hay.includes(q)) return false;
+                }
+                return true;
+              });
+              return (
+                <div className="admin-table-wrapper">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Location / Corridor</th>
+                        <th>Severity</th>
+                        <th>Description</th>
+                        <th>Reported By</th>
+                        <th>Status</th>
+                        <th>Review Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredIncidents.map((inc) => (
+                        <tr key={inc._id} style={{ opacity: inc.status !== "ACTIVE" ? 0.85 : 1 }}>
+                          <td>
+                            <span className="incident-type-tag">{inc.type}</span>
+                          </td>
+                          <td>
+                            <strong>{inc.roadName || inc.roadId}</strong>
+                            <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>{inc.location}</div>
+                            <div style={{ fontSize: "0.74rem", color: "#64748b" }}>{inc.city || ""}{inc.state ? `, ${inc.state}` : ""}</div>
+                          </td>
+                          <td>
+                            <span className={`severity-tag sev-${inc.severity?.toLowerCase()}`}>
+                              {inc.severity}
+                            </span>
+                          </td>
+                          <td style={{ maxWidth: 260 }}>
+                            <div>{inc.description}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: "0.74rem", color: "#94a3b8", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                <ThumbsUp size={11} /> {inc.upvotes || 1}
+                              </span>
+                              {Array.isArray(inc.images) &&
+                                inc.images.map((src, i) => (
+                                  <img
+                                    key={i}
+                                    src={src}
+                                    alt="Evidence"
+                                    className="admin-inc-thumb"
+                                    onClick={() => setLightboxImage(src)}
+                                  />
+                                ))}
+                            </div>
+                          </td>
+                          <td>
+                            {inc.reportedBy || "Citizen"}
+                            {inc.reporterEmail && <div style={{ fontSize: "0.73rem", color: "#64748b" }}>{inc.reporterEmail}</div>}
+                          </td>
+                          <td>
+                            <span className={`status-pill status-${inc.status?.toLowerCase()}`}>
+                              {inc.status}
+                            </span>
+                            {inc.status === "RESOLVED" && inc.resolvedBy && <div style={{ fontSize: 10, color: "#22c55e", marginTop: 2 }}>Resolved by {inc.resolvedBy}</div>}
+                            {inc.status === "VERIFIED" && inc.verifiedBy && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2 }}>Verified by {inc.verifiedBy}</div>}
+                            {inc.statusNote && <div style={{ fontSize: 10, color: "#94a3b8" }}>Note: {inc.statusNote}</div>}
+                            {inc.updatedBy && <div style={{ fontSize: 10, color: "#64748b" }}>Updated by {inc.updatedBy}</div>}
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              {inc.status !== "RESOLVED" && (
+                                <button
+                                  type="button"
+                                  className="btn-table-resolve"
+                                  onClick={() => handleIncidentStatus(inc._id, "RESOLVED")}
+                                >
+                                  <FileCheck2 size={13} /> Mark Resolved
+                                </button>
+                              )}
+                              {inc.status !== "VERIFIED" && (
+                                <button
+                                  type="button"
+                                  className="btn-table-resolve"
+                                  onClick={() => handleIncidentStatus(inc._id, "VERIFIED")}
+                                  style={{ background: "#3b82f622", color: "#3b82f6", border: "1px solid #3b82f655" }}
+                                >
+                                  <ShieldCheck size={13} /> Mark Verified
+                                </button>
+                              )}
+                              {inc.status !== "ACTIVE" && (
+                                <button
+                                  type="button"
+                                  className="btn-table-resolve"
+                                  onClick={() => handleIncidentStatus(inc._id, "ACTIVE")}
+                                  style={{ background: "#ef444422", color: "#ef4444", border: "1px solid #ef444455" }}
+                                >
+                                  ↩ Reopen
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="btn-table-resolve"
+                                onClick={() => setEditingIncident(inc)}
+                                style={{ background: "#0284c722", color: "#38bdf8", border: "1px solid #38bdf855" }}
+                              >
+                                <Pencil size={13} /> Update
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-table-delete"
+                                onClick={() => handleDeleteIncident(inc._id)}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredIncidents.length === 0 && (
+                        <tr>
+                          <td colSpan={7} style={{ textAlign: "center", padding: 24, color: "#94a3b8" }}>
+                            No matching hazard incidents found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </section>
         </div>
       )}
@@ -1806,6 +1869,19 @@ function AdminPortal() {
             <img src={lightboxImage} alt="Verification Evidence" />
           </div>
         </div>
+      )}
+
+      {editingIncident && (
+        <IncidentEditModal
+          incident={editingIncident}
+          canEditStatus
+          onClose={() => setEditingIncident(null)}
+          onSaved={(updated) => {
+            setIncidentsList((prev) => prev.map((i) => (i._id === updated._id ? { ...i, ...updated } : i)));
+            notify("Hazard report updated in database.");
+            loadAdminData();
+          }}
+        />
       )}
     </div>
   );

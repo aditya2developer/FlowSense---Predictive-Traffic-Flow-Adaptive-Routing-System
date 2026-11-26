@@ -12,6 +12,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { useCity } from "../context/CityContext";
 import { soundAlert } from "../utils/soundAlert";
+import IncidentEditModal from "../components/IncidentEditModal";
 import {
   Radio,
   Ambulance,
@@ -23,7 +24,8 @@ import {
   Clock,
   Sparkles,
   Building2,
-  FileBadge2
+  FileBadge2,
+  Pencil
 } from "lucide-react";
 
 const POLICE_JURISDICTIONS = [
@@ -66,11 +68,12 @@ function AuthorityPortal() {
   const { user } = useAuth();
   const { activeCity, cityMeta } = useCity();
 
-  const [selectedJurisdiction, setSelectedJurisdiction] = useState(() => activeCity || "All Cities");
+  const [selectedJurisdiction, setSelectedJurisdiction] = useState("All Cities");
   const [prevActiveCity, setPrevActiveCity] = useState(activeCity);
   const [stats, setStats] = useState(null);
   const [incidents, setIncidents] = useState([]);
   const [incStatusFilter, setIncStatusFilter] = useState("ALL");
+  const [editingIncident, setEditingIncident] = useState(null);
   const [advisories, setAdvisories] = useState([]);
   const [, setLoading] = useState(true);
 
@@ -80,7 +83,6 @@ function AuthorityPortal() {
 
   if (activeCity && activeCity !== prevActiveCity) {
     setPrevActiveCity(activeCity);
-    setSelectedJurisdiction(activeCity);
     if (cityMeta) {
       setGcFrom(cityMeta.defaultFrom);
       setGcTo(cityMeta.defaultTo);
@@ -208,16 +210,17 @@ function AuthorityPortal() {
   async function handleUpdateIncidentStatus(id, newStatus) {
     try {
       const res = await updateRouteIncidentStatus(id, newStatus);
-      if (res.success) {
+      if (res.success && res.data) {
         setIncidents((prev) =>
           prev.map((i) => (i._id === id ? { ...i, ...res.data } : i))
         );
         loadData(selectedJurisdiction);
       } else {
-        alert(res.message || "Failed to update status.");
+        alert(res.message || "Failed to update hazard status in database.");
       }
     } catch (err) {
       console.error(err);
+      alert("Network error while updating hazard status in database.");
     }
   }
 
@@ -555,8 +558,9 @@ function AuthorityPortal() {
                             }}>
                               {inc.status}
                             </span>
-                            {inc.resolvedBy && <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>by {inc.resolvedBy}</div>}
-                            {inc.verifiedBy && <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>by {inc.verifiedBy}</div>}
+                            {inc.status === "RESOLVED" && inc.resolvedBy && <div style={{ fontSize: 10, color: "#22c55e", marginTop: 2 }}>Resolved by {inc.resolvedBy}</div>}
+                            {inc.status === "VERIFIED" && inc.verifiedBy && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2 }}>Verified by {inc.verifiedBy}</div>}
+                            {inc.statusNote && <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>Note: {inc.statusNote}</div>}
                           </td>
                           <td style={{ maxWidth: 200 }}>
                             <div>{inc.description}</div>
@@ -608,6 +612,14 @@ function AuthorityPortal() {
                                   ↩ Reopen
                                 </button>
                               )}
+                              <button
+                                className="authority-resolve-action-btn"
+                                onClick={() => setEditingIncident(inc)}
+                                title="Edit hazard details & status note"
+                                style={{ background: "#0284c722", color: "#38bdf8", border: "1px solid #38bdf855", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4 }}
+                              >
+                                <Pencil size={12} /> Update
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -717,6 +729,18 @@ function AuthorityPortal() {
           </section>
         </div>
       </div>
+
+      {editingIncident && (
+        <IncidentEditModal
+          incident={editingIncident}
+          canEditStatus
+          onClose={() => setEditingIncident(null)}
+          onSaved={(updated) => {
+            setIncidents((prev) => prev.map((i) => (i._id === updated._id ? { ...i, ...updated } : i)));
+            loadData(selectedJurisdiction);
+          }}
+        />
+      )}
     </div>
   );
 }

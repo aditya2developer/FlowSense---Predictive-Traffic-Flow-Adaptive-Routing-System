@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   reportIncident,
-  fetchIncidents,
+  fetchAllIncidentStatuses,
   fetchMyReports,
   upvoteIncident,
   reverseGeocodeCoords,
@@ -12,6 +12,7 @@ import { INDIA_STATES_AND_UTS, getCitiesForState } from "../utils/indiaLocations
 import { useAuth } from "../context/AuthContext";
 import { useCity } from "../context/CityContext";
 import { Link } from "react-router-dom";
+import IncidentEditModal from "../components/IncidentEditModal";
 import {
   AlertTriangle,
   Send,
@@ -29,7 +30,8 @@ import {
   Navigation,
   Hospital,
   Shield,
-  Fuel
+  Fuel,
+  Pencil
 } from "lucide-react";
 
 const HAZARD_TYPES = [
@@ -98,7 +100,9 @@ function IncidentReport() {
 
   const [liveIncidents, setLiveIncidents] = useState([]);
   const [incFeedFilter, setIncFeedFilter] = useState("ALL");
+  const [feedScope, setFeedScope] = useState("ALL");
   const [myReports, setMyReports] = useState([]);
+  const [editingIncident, setEditingIncident] = useState(null);
   const [upvotingId, setUpvotingId] = useState("");
   const [lightboxImage, setLightboxImage] = useState("");
 
@@ -109,29 +113,37 @@ function IncidentReport() {
   const finalCity = selectedCity === "Other" ? customCity.trim() || "Custom City" : selectedCity;
   const activeRoad = useCustomRoad ? customRoad.trim() || "Road Corridor" : roadName || `${finalCity} Main Road`;
   const liveRec = getLiveRecommendationPreview(selectedType);
+  const isPrivileged = user?.role === "AUTHORITY" || user?.role === "ADMIN";
 
   useEffect(() => {
     let active = true;
-    // Fetch ALL statuses for community feed (PUBLIC gets ACTIVE only from backend)
-    fetchIncidents(finalCity)
-      .then((res) => {
-        if (active && res.success && Array.isArray(res.data)) {
-          setLiveIncidents(res.data.slice(0, 30));
-        }
-      })
-      .catch(() => {});
-    // Fetch user's own reports if logged in
-    fetchMyReports()
-      .then((res) => {
-        if (active && res.success && Array.isArray(res.data)) {
-          setMyReports(res.data.slice(0, 20));
-        }
-      })
-      .catch(() => {});
+    const scopeCity = feedScope === "ALL" ? "All" : finalCity;
+
+    function refreshReports() {
+      fetchAllIncidentStatuses(scopeCity)
+        .then((res) => {
+          if (active && res.success && Array.isArray(res.data)) {
+            setLiveIncidents(res.data);
+          }
+        })
+        .catch(() => {});
+
+      fetchMyReports()
+        .then((res) => {
+          if (active && res.success && Array.isArray(res.data)) {
+            setMyReports(res.data);
+          }
+        })
+        .catch(() => {});
+    }
+
+    refreshReports();
+    const poll = setInterval(refreshReports, 8000);
     return () => {
       active = false;
+      clearInterval(poll);
     };
-  }, [finalCity]);
+  }, [finalCity, feedScope]);
 
   function handleStateChange(nextState) {
     setSelectedState(nextState);
@@ -286,6 +298,7 @@ function IncidentReport() {
       const payload = {
         roadId: generatedRoadId,
         roadName: activeRoad,
+        state: selectedState,
         city: finalCity,
         type: selectedType,
         severity,
@@ -304,11 +317,11 @@ function IncidentReport() {
       const res = await reportIncident(payload);
       if (res.success) {
         setSuccessData(res);
-        fetchIncidents(finalCity).then((r) => {
-          if (r.success && Array.isArray(r.data)) setLiveIncidents(r.data.slice(0, 30));
+        fetchAllIncidentStatuses(feedScope === "ALL" ? "All" : finalCity).then((r) => {
+          if (r.success && Array.isArray(r.data)) setLiveIncidents(r.data);
         });
         fetchMyReports().then((r) => {
-          if (r.success && Array.isArray(r.data)) setMyReports(r.data.slice(0, 20));
+          if (r.success && Array.isArray(r.data)) setMyReports(r.data);
         });
         window.dispatchEvent(
           new CustomEvent("flowsense-hazard-reported", {
@@ -749,10 +762,28 @@ function IncidentReport() {
       <section className="portal-card community-feed-section" style={{ marginTop: 32 }}>
         <div className="portal-card-header">
           <div>
-            <h2>Road Hazard Feed — {finalCity} ({liveIncidents.length})</h2>
-            <p>Confirm active incidents on your route to help other commuters in {finalCity}.</p>
+            <h2>Road Hazard Feed — {feedScope === "ALL" ? "All Cities" : finalCity} ({liveIncidents.length})</h2>
+            <p>All reported, verified, and resolved hazards synced live from the database across every profile.</p>
           </div>
-          <span className="live-pulse-badge emerald">{finalCity} Live Feed</span>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setFeedScope((prev) => (prev === "ALL" ? "CITY" : "ALL"))}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 16,
+                border: "1px solid #38bdf866",
+                background: "#0284c722",
+                color: "#38bdf8",
+                fontSize: 12,
+                cursor: "pointer",
+                fontWeight: 600
+              }}
+            >
+              {feedScope === "ALL" ? `Filter: ${finalCity} Only` : "Show All Cities"}
+            </button>
+            <span className="live-pulse-badge emerald">{feedScope === "ALL" ? "All Cities Live" : `${finalCity} Live Feed`}</span>
+          </div>
         </div>
 
         {/* Feed Status Filter Tabs */}
@@ -762,6 +793,7 @@ function IncidentReport() {
             return (
               <button
                 key={s}
+                type="button"
                 onClick={() => setIncFeedFilter(s)}
                 style={{
                   padding: "4px 14px", borderRadius: 20, border: "1.5px solid",
@@ -781,72 +813,107 @@ function IncidentReport() {
         {(() => {
           const filtered = incFeedFilter === "ALL" ? liveIncidents : liveIncidents.filter(i => i.status === incFeedFilter);
           return filtered.length === 0 ? (
-            <p style={{ color: "#94a3b8" }}>No {incFeedFilter !== "ALL" ? incFeedFilter.toLowerCase() + " " : ""}road hazards in {finalCity} right now.</p>
+            <p style={{ color: "#94a3b8" }}>No {incFeedFilter !== "ALL" ? incFeedFilter.toLowerCase() + " " : ""}road hazards in {feedScope === "ALL" ? "database" : finalCity} right now.</p>
           ) : (
             <div className="community-hazards-grid">
-              {filtered.map((inc) => (
-                <div key={inc._id} className="my-report-card" style={{ opacity: inc.status !== "ACTIVE" ? 0.8 : 1 }}>
-                  <div className="my-report-top">
-                    <span className="incident-type-tag">{inc.type}</span>
-                    <span className={`severity-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
-                      {inc.severity}
-                    </span>
-                    <span style={{
-                      padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-                      background: inc.status === "ACTIVE" ? "#ef444422" : inc.status === "RESOLVED" ? "#22c55e22" : "#3b82f622",
-                      color: inc.status === "ACTIVE" ? "#ef4444" : inc.status === "RESOLVED" ? "#22c55e" : "#3b82f6"
-                    }}>{inc.status || "ACTIVE"}</span>
-                    <span className="community-city-tag">{inc.city}</span>
-                  </div>
-
-                  <h4>{inc.roadName || inc.roadId}</h4>
-                  <p className="report-card-loc">
-                    <MapPin size={12} /> {inc.location || inc.roadName}
-                  </p>
-                  {inc.coordinates?.latitude && (
-                    <p className="report-card-coords">
-                      GPS: {Number(inc.coordinates.latitude).toFixed(4)}°N,{" "}
-                      {Number(inc.coordinates.longitude).toFixed(4)}°E
-                    </p>
-                  )}
-                  {inc.description && <p className="report-card-desc">{inc.description}</p>}
-                  {(inc.resolvedBy || inc.verifiedBy) && (
-                    <p style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>
-                      {inc.resolvedBy ? `✓ Resolved by ${inc.resolvedBy}` : `✔ Verified by ${inc.verifiedBy}`}
-                    </p>
-                  )}
-
-                  {Array.isArray(inc.images) && inc.images.length > 0 && (
-                    <div className="report-thumbs-row">
-                      {inc.images.map((imgSrc, idx) => (
-                        <img
-                          key={idx}
-                          src={imgSrc}
-                          alt="Hazard photo"
-                          onClick={() => setLightboxImage(imgSrc)}
-                        />
-                      ))}
+              {filtered.map((inc) => {
+                const isOwnReport = Boolean(
+                  user?.email && myReports.some((r) => r._id === inc._id)
+                );
+                return (
+                  <div key={inc._id} className="my-report-card" style={{ opacity: inc.status !== "ACTIVE" ? 0.85 : 1 }}>
+                    <div className="my-report-top">
+                      <span className="incident-type-tag">{inc.type}</span>
+                      <span className={`severity-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
+                        {inc.severity}
+                      </span>
+                      <span style={{
+                        padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                        background: inc.status === "ACTIVE" ? "#ef444422" : inc.status === "RESOLVED" ? "#22c55e22" : "#3b82f622",
+                        color: inc.status === "ACTIVE" ? "#ef4444" : inc.status === "RESOLVED" ? "#22c55e" : "#3b82f6"
+                      }}>{inc.status || "ACTIVE"}</span>
+                      <span className="community-city-tag">{inc.city}</span>
                     </div>
-                  )}
 
-                  <div className="my-report-foot">
-                    <span>By {inc.reportedBy || "Citizen"}</span>
-                    {inc.status === "ACTIVE" && (
-                      <button
-                        type="button"
-                        className="upvote-action-btn"
-                        onClick={() => handleUpvote(inc._id)}
-                        disabled={upvotingId === inc._id}
-                      >
-                        <ThumbsUp size={13} /> Confirm ({inc.upvotes || 1})
-                      </button>
+                    <h4>{inc.roadName || inc.roadId}</h4>
+                    <p className="report-card-loc">
+                      <MapPin size={12} /> {inc.location || inc.roadName}
+                    </p>
+                    {inc.coordinates?.latitude && (
+                      <p className="report-card-coords">
+                        GPS: {Number(inc.coordinates.latitude).toFixed(4)}°N,{" "}
+                        {Number(inc.coordinates.longitude).toFixed(4)}°E
+                      </p>
                     )}
-                    {inc.status !== "ACTIVE" && (
-                      <span style={{ fontSize: 12, color: "#64748b" }}>👍 {inc.upvotes || 1} confirmed</span>
+                    {inc.description && <p className="report-card-desc">{inc.description}</p>}
+                    {inc.status === "RESOLVED" && inc.resolvedBy && (
+                      <p style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>✓ Resolved by {inc.resolvedBy}</p>
                     )}
+                    {inc.status === "VERIFIED" && inc.verifiedBy && (
+                      <p style={{ fontSize: 11, color: "#3b82f6", marginTop: 4 }}>✔ Verified by {inc.verifiedBy}</p>
+                    )}
+                    {inc.statusNote && (
+                      <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Note: {inc.statusNote}</p>
+                    )}
+                    {inc.updatedBy && (
+                      <p style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                        Last updated by {inc.updatedBy}
+                      </p>
+                    )}
+
+                    {Array.isArray(inc.images) && inc.images.length > 0 && (
+                      <div className="report-thumbs-row">
+                        {inc.images.map((imgSrc, idx) => (
+                          <img
+                            key={idx}
+                            src={imgSrc}
+                            alt="Hazard photo"
+                            onClick={() => setLightboxImage(imgSrc)}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="my-report-foot">
+                      <span>By {inc.reportedBy || "Citizen"}</span>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {(isOwnReport || isPrivileged) && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingIncident(inc)}
+                            style={{
+                              padding: "4px 9px",
+                              borderRadius: 6,
+                              border: "1px solid #38bdf855",
+                              background: "#0284c722",
+                              color: "#38bdf8",
+                              fontSize: 11,
+                              cursor: "pointer",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4
+                            }}
+                          >
+                            <Pencil size={11} /> Edit
+                          </button>
+                        )}
+                        {inc.status === "ACTIVE" ? (
+                          <button
+                            type="button"
+                            className="upvote-action-btn"
+                            onClick={() => handleUpvote(inc._id)}
+                            disabled={upvotingId === inc._id}
+                          >
+                            <ThumbsUp size={13} /> Confirm ({inc.upvotes || 1})
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 12, color: "#64748b" }}>👍 {inc.upvotes || 1} confirmed</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           );
         })()}
@@ -858,7 +925,7 @@ function IncidentReport() {
           <div className="portal-card-header">
             <div>
               <h2>My Submitted Reports ({myReports.length})</h2>
-              <p>Track the status of your own hazard submissions.</p>
+              <p>Track &amp; update your own hazard submissions synced with database.</p>
             </div>
           </div>
           <div className="community-hazards-grid">
@@ -874,21 +941,53 @@ function IncidentReport() {
                   }}>{inc.status || "ACTIVE"}</span>
                 </div>
                 <h4>{inc.roadName || inc.roadId}</h4>
-                <p className="report-card-loc"><MapPin size={12} /> {inc.location || inc.roadName}</p>
+                <p className="report-card-loc"><MapPin size={12} /> {inc.location || inc.roadName} ({inc.city})</p>
                 {inc.description && <p className="report-card-desc">{inc.description}</p>}
-                {inc.resolvedBy && <p style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>✓ Resolved by {inc.resolvedBy}</p>}
-                {inc.verifiedBy && <p style={{ fontSize: 11, color: "#3b82f6", marginTop: 4 }}>✔ Verified by {inc.verifiedBy}</p>}
+                {inc.status === "RESOLVED" && inc.resolvedBy && <p style={{ fontSize: 11, color: "#22c55e", marginTop: 4 }}>✓ Resolved by {inc.resolvedBy}</p>}
+                {inc.status === "VERIFIED" && inc.verifiedBy && <p style={{ fontSize: 11, color: "#3b82f6", marginTop: 4 }}>✔ Verified by {inc.verifiedBy}</p>}
                 {inc.statusNote && <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Note: {inc.statusNote}</p>}
                 <div className="my-report-foot">
                   <span style={{ fontSize: 11, color: "#64748b" }}>
                     {new Date(inc.reportedAt || inc.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
                   </span>
-                  <span>👍 {inc.upvotes || 1} confirmed</span>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button
+                      type="button"
+                      onClick={() => setEditingIncident(inc)}
+                      style={{
+                        padding: "4px 9px",
+                        borderRadius: 6,
+                        border: "1px solid #38bdf855",
+                        background: "#0284c722",
+                        color: "#38bdf8",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4
+                      }}
+                    >
+                      <Pencil size={11} /> Update
+                    </button>
+                    <span>👍 {inc.upvotes || 1} confirmed</span>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         </section>
+      )}
+
+      {editingIncident && (
+        <IncidentEditModal
+          incident={editingIncident}
+          canEditStatus={isPrivileged}
+          onClose={() => setEditingIncident(null)}
+          onSaved={(updated) => {
+            setLiveIncidents((prev) => prev.map((i) => (i._id === updated._id ? { ...i, ...updated } : i)));
+            setMyReports((prev) => prev.map((i) => (i._id === updated._id ? { ...i, ...updated } : i)));
+          }}
+        />
       )}
 
       {lightboxImage && (

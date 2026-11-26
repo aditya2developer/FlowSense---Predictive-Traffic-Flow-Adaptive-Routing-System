@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import TrafficAnalytics from "../components/TrafficAnalytics";
-import { fetchIncidents, resolveIncident, fetchWeather, fetchRoadSegments } from "../api";
+import IncidentEditModal from "../components/IncidentEditModal";
+import { fetchAllIncidentStatuses, updateRouteIncidentStatus, fetchWeather, fetchRoadSegments } from "../api";
 import { useCity } from "../context/CityContext";
 import { useAuth } from "../context/AuthContext";
-import { RefreshCw, CloudSun, AlertCircle, Shield, Activity, Route, ThumbsUp, Camera, MapPin } from "lucide-react";
+import { RefreshCw, CloudSun, AlertCircle, Shield, Activity, Route, ThumbsUp, Camera, MapPin, Pencil } from "lucide-react";
 
 const WEATHER_CITIES = [
   "Delhi", "Mumbai", "Bengaluru", "Chennai", "Hyderabad", "Kolkata",
@@ -15,13 +16,16 @@ const WEATHER_CITIES = [
 
 function Dashboard() {
   const { activeCity, activeState, openCityModal } = useCity();
-  const { isAuthority } = useAuth();
+  const { isAuthority, isAdmin } = useAuth();
+  const canManageIncidents = isAuthority || isAdmin;
 
   const [incidents, setIncidents] = useState([]);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [editingIncident, setEditingIncident] = useState(null);
   const [weather, setWeather] = useState(null);
   const [roadCount, setRoadCount] = useState(10);
   const [loading, setLoading] = useState(true);
-  const [scopeAllIndia, setScopeAllIndia] = useState(false);
+  const [scopeAllIndia, setScopeAllIndia] = useState(true);
   const [weatherCity, setWeatherCity] = useState(() => activeCity || "Delhi");
   const [prevActiveCity, setPrevActiveCity] = useState(activeCity);
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -35,23 +39,29 @@ function Dashboard() {
     let active = true;
     const cityFilter = scopeAllIndia ? "All" : activeCity;
 
-    Promise.all([
-      fetchIncidents(cityFilter).catch(() => ({ success: false, data: [] })),
-      fetchWeather(activeCity).catch(() => ({ success: false, data: null })),
-      fetchRoadSegments().catch(() => ({ success: false, data: [] }))
-    ])
-      .then(([incData, weatherData, segData]) => {
-        if (!active) return;
-        if (incData.success) setIncidents(incData.data || []);
-        if (weatherData.success) setWeather(weatherData.data || null);
-        if (segData.success && Array.isArray(segData.data)) setRoadCount(segData.data.length);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    function loadDashboard() {
+      Promise.all([
+        fetchAllIncidentStatuses(cityFilter).catch(() => ({ success: false, data: [] })),
+        fetchWeather(activeCity).catch(() => ({ success: false, data: null })),
+        fetchRoadSegments().catch(() => ({ success: false, data: [] }))
+      ])
+        .then(([incData, weatherData, segData]) => {
+          if (!active) return;
+          if (incData.success) setIncidents(incData.data || []);
+          if (weatherData.success) setWeather(weatherData.data || null);
+          if (segData.success && Array.isArray(segData.data)) setRoadCount(segData.data.length);
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }
+
+    loadDashboard();
+    const poll = setInterval(loadDashboard, 10000);
 
     return () => {
       active = false;
+      clearInterval(poll);
     };
   }, [activeCity, scopeAllIndia]);
 
@@ -60,7 +70,7 @@ function Dashboard() {
     try {
       const cityFilter = scopeAllIndia ? "All" : activeCity;
       const [incData, weatherData, segData] = await Promise.all([
-        fetchIncidents(cityFilter).catch(() => ({ success: false, data: [] })),
+        fetchAllIncidentStatuses(cityFilter).catch(() => ({ success: false, data: [] })),
         fetchWeather(weatherCity).catch(() => ({ success: false, data: null })),
         fetchRoadSegments().catch(() => ({ success: false, data: [] }))
       ]);
@@ -85,12 +95,17 @@ function Dashboard() {
     }
   }
 
-  async function handleResolve(id) {
+  async function handleIncidentStatusChange(id, nextStatus) {
     try {
-      const res = await resolveIncident(id);
-      if (res.success) setIncidents((prev) => prev.filter((inc) => inc._id !== id));
+      const res = await updateRouteIncidentStatus(id, nextStatus);
+      if (res.success && res.data) {
+        setIncidents((prev) => prev.map((inc) => (inc._id === id ? { ...inc, ...res.data } : inc)));
+      } else {
+        alert(res.message || "Failed to update incident status in database.");
+      }
     } catch (err) {
-      console.error("Failed to resolve incident:", err);
+      console.error("Failed to update incident status:", err);
+      alert("Network error while updating incident status.");
     }
   }
 
@@ -234,12 +249,12 @@ function Dashboard() {
         </div>
       </section>
 
-      {/* ACTIVE INCIDENTS (CITY FILTERED) */}
+      {/* ALL INCIDENTS (CROSS-PORTAL SYNCED) */}
       <section className="incidents-section-card">
         <div className="incidents-card-header">
           <div>
-            <h2>🚨 Active Road Hazards — {scopeAllIndia ? "All India" : activeCity}</h2>
-            <p>Live road incidents affecting route stability scores in your selected region.</p>
+            <h2>🚨 Road Hazard Reports ({incidents.length}) — {scopeAllIndia ? "All India" : activeCity}</h2>
+            <p>All active, verified, and resolved hazard reports synchronized live across Public, Authority, and Admin portals.</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button
@@ -255,76 +270,172 @@ function Dashboard() {
           </div>
         </div>
 
-        {incidents.length === 0 ? (
-          <div className="no-incidents-notice">
-            <span>✅</span>
-            <p>
-              No active hazards reported in {scopeAllIndia ? "monitored regions" : activeCity} right
-              now.
-            </p>
-          </div>
-        ) : (
-          <div className="incidents-table-wrapper">
-            <table className="incidents-table">
-              <thead>
-                <tr>
-                  <th>Severity</th>
-                  <th>Type</th>
-                  <th>Road Corridor</th>
-                  <th>City</th>
-                  <th>Description</th>
-                  <th>Reported</th>
-                  {isAuthority && <th>Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {incidents.map((inc) => (
-                  <tr key={inc._id}>
-                    <td>
-                      <span className={`severity-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
-                        {inc.severity}
-                      </span>
-                    </td>
-                    <td><strong>{inc.type?.replace(/_/g, " ")}</strong></td>
-                    <td>{inc.roadName || inc.roadId}</td>
-                    <td>{inc.city || "—"}</td>
-                    <td style={{ maxWidth: 220, fontSize: "0.82rem" }}>
-                      <div>{inc.description || "No description provided"}</div>
-                      <div style={{ display: "flex", gap: 8, marginTop: 4, fontSize: "0.74rem", color: "#94a3b8" }}>
-                        <span><ThumbsUp size={11} /> {inc.upvotes || 1}</span>
-                        {Array.isArray(inc.images) && inc.images.length > 0 && (
-                          <span style={{ color: "#38bdf8" }}>
-                            <Camera size={11} /> {inc.images.length} photo(s)
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      {new Date(inc.reportedAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit"
-                      })}
-                    </td>
-                    {isAuthority && (
-                      <td>
-                        <button
-                          className="resolve-btn"
-                          onClick={() => handleResolve(inc._id)}
-                          title="Mark hazard as cleared"
-                        >
-                          ✓ Resolve
-                        </button>
-                      </td>
-                    )}
+        <div style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+          {["ALL", "ACTIVE", "RESOLVED", "VERIFIED"].map((s) => {
+            const count = s === "ALL" ? incidents.length : incidents.filter((i) => i.status === s).length;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatusFilter(s)}
+                style={{
+                  padding: "4px 14px",
+                  borderRadius: 20,
+                  border: "1.5px solid",
+                  borderColor: statusFilter === s ? "#38bdf8" : "#334155",
+                  background: statusFilter === s ? "#0284c722" : "transparent",
+                  color: statusFilter === s ? "#38bdf8" : "#94a3b8",
+                  fontWeight: statusFilter === s ? 700 : 400,
+                  cursor: "pointer",
+                  fontSize: 12
+                }}
+              >
+                {s === "ALL" ? `All (${count})` : `${s.charAt(0) + s.slice(1).toLowerCase()} (${count})`}
+              </button>
+            );
+          })}
+        </div>
+
+        {(() => {
+          const visible = statusFilter === "ALL" ? incidents : incidents.filter((i) => i.status === statusFilter);
+          return visible.length === 0 ? (
+            <div className="no-incidents-notice">
+              <span>✅</span>
+              <p>
+                No {statusFilter !== "ALL" ? statusFilter.toLowerCase() + " " : ""}hazards in {scopeAllIndia ? "monitored regions" : activeCity} right
+                now.
+              </p>
+            </div>
+          ) : (
+            <div className="incidents-table-wrapper">
+              <table className="incidents-table">
+                <thead>
+                  <tr>
+                    <th>Severity</th>
+                    <th>Status</th>
+                    <th>Type</th>
+                    <th>Road Corridor</th>
+                    <th>City</th>
+                    <th>Description</th>
+                    <th>Reported</th>
+                    {canManageIncidents && <th>Actions</th>}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {visible.map((inc) => (
+                    <tr key={inc._id} style={{ opacity: inc.status !== "ACTIVE" ? 0.85 : 1 }}>
+                      <td>
+                        <span className={`severity-tag sev-${(inc.severity || "medium").toLowerCase()}`}>
+                          {inc.severity}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            padding: "2px 9px",
+                            borderRadius: 12,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: inc.status === "ACTIVE" ? "#ef444422" : inc.status === "RESOLVED" ? "#22c55e22" : "#3b82f622",
+                            color: inc.status === "ACTIVE" ? "#ef4444" : inc.status === "RESOLVED" ? "#22c55e" : "#3b82f6"
+                          }}
+                        >
+                          {inc.status || "ACTIVE"}
+                        </span>
+                        {inc.status === "RESOLVED" && inc.resolvedBy && (
+                          <div style={{ fontSize: 10, color: "#22c55e", marginTop: 2 }}>by {inc.resolvedBy}</div>
+                        )}
+                        {inc.status === "VERIFIED" && inc.verifiedBy && (
+                          <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2 }}>by {inc.verifiedBy}</div>
+                        )}
+                      </td>
+                      <td><strong>{inc.type?.replace(/_/g, " ")}</strong></td>
+                      <td>{inc.roadName || inc.roadId}</td>
+                      <td>{inc.city || "—"}</td>
+                      <td style={{ maxWidth: 220, fontSize: "0.82rem" }}>
+                        <div>{inc.description || "No description provided"}</div>
+                        {inc.statusNote && (
+                          <div style={{ fontSize: "0.73rem", color: "#38bdf8", marginTop: 2 }}>Note: {inc.statusNote}</div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, marginTop: 4, fontSize: "0.74rem", color: "#94a3b8" }}>
+                          <span><ThumbsUp size={11} /> {inc.upvotes || 1}</span>
+                          {Array.isArray(inc.images) && inc.images.length > 0 && (
+                            <span style={{ color: "#38bdf8" }}>
+                              <Camera size={11} /> {inc.images.length} photo(s)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        {new Date(inc.reportedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })}
+                      </td>
+                      {canManageIncidents && (
+                        <td>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {inc.status !== "RESOLVED" && (
+                              <button
+                                className="resolve-btn"
+                                onClick={() => handleIncidentStatusChange(inc._id, "RESOLVED")}
+                                title="Mark hazard as resolved"
+                              >
+                                ✓ Resolve
+                              </button>
+                            )}
+                            {inc.status !== "VERIFIED" && (
+                              <button
+                                className="resolve-btn"
+                                onClick={() => handleIncidentStatusChange(inc._id, "VERIFIED")}
+                                title="Mark hazard as verified"
+                                style={{ background: "#3b82f622", color: "#3b82f6", borderColor: "#3b82f655" }}
+                              >
+                                ✔ Verify
+                              </button>
+                            )}
+                            {inc.status !== "ACTIVE" && (
+                              <button
+                                className="resolve-btn"
+                                onClick={() => handleIncidentStatusChange(inc._id, "ACTIVE")}
+                                title="Reopen hazard"
+                                style={{ background: "#ef444422", color: "#ef4444", borderColor: "#ef444455" }}
+                              >
+                                ↩ Reopen
+                              </button>
+                            )}
+                            <button
+                              className="resolve-btn"
+                              onClick={() => setEditingIncident(inc)}
+                              title="Update hazard details"
+                              style={{ background: "#0284c722", color: "#38bdf8", borderColor: "#38bdf855", display: "inline-flex", alignItems: "center", gap: 3 }}
+                            >
+                              <Pencil size={11} /> Edit
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </section>
 
       <TrafficAnalytics />
+
+      {editingIncident && (
+        <IncidentEditModal
+          incident={editingIncident}
+          canEditStatus={canManageIncidents}
+          onClose={() => setEditingIncident(null)}
+          onSaved={(updated) => {
+            setIncidents((prev) => prev.map((i) => (i._id === updated._id ? { ...i, ...updated } : i)));
+          }}
+        />
+      )}
     </div>
   );
 }

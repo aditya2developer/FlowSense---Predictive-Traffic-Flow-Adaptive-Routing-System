@@ -16,6 +16,7 @@ const {
   saveEmailGatewayConfig,
   sendTestEmail
 } = require("../utils/emailService");
+const { buildIncidentStatusUpdate } = require("../utils/incidentHelpers");
 
 const router = express.Router();
 
@@ -451,20 +452,29 @@ router.get("/incidents", authenticate, requireRole("ADMIN"), async (req, res) =>
 
 router.patch("/incidents/:id/status", authenticate, requireRole("ADMIN"), async (req, res) => {
   try {
-    const { status } = req.body;
+    const actorName = req.user?.name || req.user?.email || "Admin";
+    const result = buildIncidentStatusUpdate(req.body?.status, actorName, req.body?.note);
+    if (result.error) {
+      return res.status(400).json({ success: false, message: result.error });
+    }
+    const { rawStatus, updateFields } = result;
+
     if (global.isMongoConnected) {
       const updated = await Incident.findByIdAndUpdate(
         req.params.id,
-        { status },
-        { new: true }
+        updateFields,
+        { new: true, runValidators: true }
       );
       if (!updated) {
         return res.status(404).json({ success: false, message: "Incident not found." });
       }
-      return res.json({ success: true, data: updated, message: `Incident marked as ${status}.` });
+      return res.json({ success: true, data: updated, message: `Incident marked as ${rawStatus}.` });
     }
-    const memUpdated = MemoryStore.updateIncidentStatus(req.params.id, status);
-    return res.json({ success: true, data: memUpdated, message: `Incident marked as ${status}.` });
+    const memUpdated = MemoryStore.updateIncidentStatus(req.params.id, rawStatus, updateFields);
+    if (!memUpdated) {
+      return res.status(404).json({ success: false, message: "Incident not found." });
+    }
+    return res.json({ success: true, data: memUpdated, message: `Incident marked as ${rawStatus}.` });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

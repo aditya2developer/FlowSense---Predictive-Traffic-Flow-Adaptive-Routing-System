@@ -5,6 +5,7 @@
  */
 
 const bcrypt = require("bcryptjs");
+const { buildCityRegex } = require("./incidentHelpers");
 
 // Initial Seed Roads
 const initialRoads = [
@@ -451,14 +452,16 @@ class MemoryStore {
   }
 
   // INCIDENT METHODS
-  static getIncidents(cityFilter) {
-    if (!cityFilter || cityFilter === "All" || cityFilter === "All Cities") {
-      return incidents.filter((i) => i.status === "ACTIVE");
+  static getIncidents(cityFilter, statusFilter) {
+    let list = incidents;
+    if (statusFilter && statusFilter.toUpperCase() !== "ALL") {
+      list = list.filter((i) => i.status === statusFilter.toUpperCase());
     }
-    const clean = cityFilter.toLowerCase().trim();
-    return incidents.filter(
-      (i) => i.status === "ACTIVE" && i.city && i.city.toLowerCase().includes(clean)
-    );
+    const regex = buildCityRegex(cityFilter);
+    if (!regex) {
+      return list;
+    }
+    return list.filter((i) => (i.city && regex.test(i.city)) || (i.state && regex.test(i.state)));
   }
 
   static getAllIncidentsRaw() {
@@ -470,10 +473,12 @@ class MemoryStore {
       _id: "mem_inc_" + Date.now().toString(36),
       roadId: data.roadId || ("HAZ_" + Date.now().toString(36).toUpperCase()),
       roadName: data.roadName,
+      state: data.state || "",
       city: data.city || "Delhi NCR",
       type: data.type || "OTHER",
       severity: data.severity || "MEDIUM",
       description: data.description,
+      landmark: data.landmark || "",
       reportedBy: data.reportedBy || "Citizen",
       reporterEmail: data.reporterEmail || "",
       contactPhone: data.contactPhone || "",
@@ -498,10 +503,20 @@ class MemoryStore {
     return null;
   }
 
-  static updateIncidentStatus(id, status) {
+  static updateIncidentStatus(id, status, extraFields = {}) {
     const inc = incidents.find((i) => String(i._id) === String(id));
     if (inc) {
       inc.status = status;
+      Object.assign(inc, extraFields, { updatedAt: new Date().toISOString() });
+      return inc;
+    }
+    return null;
+  }
+
+  static updateIncident(id, fields = {}) {
+    const inc = incidents.find((i) => String(i._id) === String(id));
+    if (inc) {
+      Object.assign(inc, fields, { updatedAt: new Date().toISOString() });
       return inc;
     }
     return null;

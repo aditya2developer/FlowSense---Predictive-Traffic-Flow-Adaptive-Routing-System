@@ -6,6 +6,7 @@ const MemoryStore = require("../utils/memoryStore");
 const geocodeLocation = require("../utils/geocode");
 const getRoute = require("../utils/route");
 const { authenticate, requireRole } = require("../middleware/auth");
+const { buildCityRegex } = require("../utils/incidentHelpers");
 
 const router = express.Router();
 
@@ -178,18 +179,19 @@ router.get("/enforcement-stats", authenticate, requireRole("AUTHORITY", "ADMIN")
     if (global.isMongoConnected) {
       try {
         const filter = { status: "ACTIVE" };
-        if (city && city.toLowerCase() !== "all" && city.toLowerCase() !== "national") {
-          filter.city = new RegExp(city.trim(), "i");
+        const cityRegex = buildCityRegex(city);
+        if (cityRegex) {
+          filter.$or = [{ city: cityRegex }, { state: cityRegex }];
         }
         activeIncidents = await Incident.find(filter);
         const segments = await RoadSegment.find({});
         segmentsCount = segments.length;
       } catch {
-        activeIncidents = MemoryStore.getIncidents(city);
+        activeIncidents = MemoryStore.getIncidents(city, "ACTIVE");
         segmentsCount = MemoryStore.getAllRoads().length;
       }
     } else {
-      activeIncidents = MemoryStore.getIncidents(city);
+      activeIncidents = MemoryStore.getIncidents(city, "ACTIVE");
       segmentsCount = MemoryStore.getAllRoads().length;
     }
 

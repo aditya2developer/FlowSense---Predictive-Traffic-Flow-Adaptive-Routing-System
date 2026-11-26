@@ -106,7 +106,8 @@ export async function resetUserPassword(payload) {
 
 export async function fetchMyReports() {
   return apiFetch("/api/auth/my-reports", {
-    headers: getAuthHeaders()
+    headers: getAuthHeaders(),
+    cache: "no-store"
   }, 10000);
 }
 
@@ -144,17 +145,16 @@ export async function fetchAnalytics(roadId) {
 export async function fetchIncidents(city, status) {
   const params = new URLSearchParams();
   if (city && city !== "All" && city !== "All Cities") params.set("city", city);
-  if (status && status !== "ALL") params.set("status", status);
+  if (status) params.set("status", status);
   const qs = params.toString() ? `?${params.toString()}` : "";
-  return apiFetch(`/api/routes/incidents${qs}`, { headers: getAuthHeaders() }, 8000);
+  return apiFetch(`/api/routes/incidents${qs}`, { headers: getAuthHeaders(), cache: "no-store" }, 8000);
 }
 
 export async function fetchAllIncidentStatuses(city) {
   const params = new URLSearchParams();
   if (city && city !== "All" && city !== "All Cities") params.set("city", city);
-  // No status param → backend returns all statuses for AUTHORITY/ADMIN, ACTIVE for PUBLIC
-  const qs = params.toString() ? `?${params.toString()}` : "";
-  return apiFetch(`/api/routes/incidents${qs}`, { headers: getAuthHeaders() }, 8000);
+  params.set("status", "ALL");
+  return apiFetch(`/api/routes/incidents?${params.toString()}`, { headers: getAuthHeaders(), cache: "no-store" }, 8000);
 }
 
 export async function updateRouteIncidentStatus(id, status, note = "") {
@@ -162,6 +162,14 @@ export async function updateRouteIncidentStatus(id, status, note = "") {
     method: "PATCH",
     headers: getAuthHeaders(),
     body: JSON.stringify({ status, note })
+  }, 10000);
+}
+
+export async function updateIncidentDetails(id, updates) {
+  return apiFetch(`/api/routes/incidents/${id}`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify(updates)
   }, 10000);
 }
 
@@ -324,16 +332,17 @@ export async function deleteRoadSegment(segmentId) {
 
 export async function fetchAdminIncidents() {
   return apiFetch("/api/admin/incidents", {
-    headers: getAuthHeaders()
-  }, 5000);
+    headers: getAuthHeaders(),
+    cache: "no-store"
+  }, 8000);
 }
 
-export async function updateIncidentStatus(incidentId, status) {
+export async function updateIncidentStatus(incidentId, status, note = "") {
   return apiFetch(`/api/admin/incidents/${incidentId}/status`, {
     method: "PATCH",
     headers: getAuthHeaders(),
-    body: JSON.stringify({ status })
-  });
+    body: JSON.stringify({ status, note })
+  }, 10000);
 }
 
 export async function deleteIncident(incidentId) {
