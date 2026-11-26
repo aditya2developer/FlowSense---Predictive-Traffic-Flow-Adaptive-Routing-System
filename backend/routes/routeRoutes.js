@@ -1317,23 +1317,27 @@ router.post('/incidents', async (req, res) => {
   }
 });
 
-// INCIDENTS - GET all active (Supports ?city=Delhi & ?status=ACTIVE)
+// INCIDENTS - GET all (Supports ?city=Delhi & ?status=ACTIVE|RESOLVED|VERIFIED|ALL)
+// AUTHORITY/ADMIN: defaults to ALL statuses when no status param.
+// PUBLIC/unauthenticated: defaults to ACTIVE only.
 router.get('/incidents', optionalAuthenticate, async (req, res) => {
   try {
     const { city, status } = req.query;
+    const isPrivileged = req.user && ['ADMIN', 'AUTHORITY'].includes(req.user.role);
 
     if (global.isMongoConnected) {
       try {
         const filter = {};
-        if (status) {
-          filter.status = status;
-        } else {
+        if (status && status.toUpperCase() !== 'ALL') {
+          filter.status = status.toUpperCase();
+        } else if (!status && !isPrivileged) {
           filter.status = 'ACTIVE';
         }
+        // If isPrivileged and no status param → no status filter → returns all statuses
         if (city && city.toLowerCase() !== 'all' && city.toLowerCase() !== 'all cities' && city.toLowerCase() !== 'national') {
-          filter.city = new RegExp(city.trim(), 'i');
+          filter.city = new RegExp(city.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
         }
-        const incidents = await Incident.find(filter).sort({ reportedAt: -1 }).limit(100);
+        const incidents = await Incident.find(filter).sort({ reportedAt: -1 }).limit(200);
         const safe = incidents.map((i) => sanitizeIncidentForCaller(i, req.user));
         return res.json({ success: true, count: safe.length, data: safe });
       } catch { /* no-op */ }
@@ -1395,7 +1399,7 @@ router.get('/incidents/road/:roadId', optionalAuthenticate, async (req, res) => 
   }
 });
 
-// INCIDENTS - PATCH resolve (Authority / Admin)
+// INCIDENTS - PATCH resolve (Authority / Admin) [kept for backward compat]
 router.patch('/incidents/:id/resolve', authenticate, requireRole('AUTHORITY', 'ADMIN'), async (req, res) => {
   try {
     if (global.isMongoConnected) {
@@ -1413,6 +1417,44 @@ router.patch('/incidents/:id/resolve', authenticate, requireRole('AUTHORITY', 'A
     return res.json({ success: true, message: 'Incident resolved.', data: memInc });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to resolve incident: ' + error.message });
+  }
+});
+
+// INCIDENTS - PATCH status (Authority / Admin) — full status lifecycle
+router.patch('/incidents/:id/status', authenticate, requireRole('AUTHORITY', 'ADMIN'), async (req, res) => {
+  try {
+    const VALID_STATUSES = ['ACTIVE', 'RESOLVED', 'VERIFIED'];
+    const rawStatus = String(req.body?.status || '').toUpperCase().trim();
+    if (!VALID_STATUSES.includes(rawStatus)) {
+      return res.status(400).json({ success: false, message: `status must be one of: ${VALID_STATUSES.join(', ')}` });
+    }
+    const note = String(req.body?.note || '').trim();
+    const actorName = req.user?.name || req.user?.email || 'Official';
+
+    const updateFields = { status: rawStatus, statusNote: note };
+    if (rawStatus === 'RESOLVED') {
+      updateFields.resolvedBy = actorName;
+      updateFields.resolvedAt = new Date();
+    } else if (rawStatus === 'VERIFIED') {
+      updateFields.verifiedBy = actorName;
+      updateFields.verifiedAt = new Date();
+    }
+
+    if (global.isMongoConnected) {
+      const incident = await Incident.findByIdAndUpdate(req.params.id, updateFields, { new: true });
+      if (!incident) {
+        return res.status(404).json({ success: false, message: 'Incident not found.' });
+      }
+      return res.json({ success: true, message: `Incident marked ${rawStatus}.`, data: incident });
+    }
+    const MemoryStore = require("../utils/memoryStore");
+    const memInc = MemoryStore.updateIncidentStatus(req.params.id, rawStatus);
+    if (!memInc) {
+      return res.status(404).json({ success: false, message: 'Incident not found.' });
+    }
+    return res.json({ success: true, message: `Incident marked ${rawStatus}.`, data: memInc });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to update incident status: ' + error.message });
   }
 });
 

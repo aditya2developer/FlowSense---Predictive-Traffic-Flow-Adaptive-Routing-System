@@ -141,9 +141,28 @@ export async function fetchAnalytics(roadId) {
   return apiFetch(`/api/routes/analytics/${encodeURIComponent(roadId)}`, { headers: getAuthHeaders() });
 }
 
-export async function fetchIncidents(city) {
-  const query = city && city !== "All" && city !== "All Cities" ? `?city=${encodeURIComponent(city)}` : "";
-  return apiFetch(`/api/routes/incidents${query}`, { headers: getAuthHeaders() }, 5000);
+export async function fetchIncidents(city, status) {
+  const params = new URLSearchParams();
+  if (city && city !== "All" && city !== "All Cities") params.set("city", city);
+  if (status && status !== "ALL") params.set("status", status);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiFetch(`/api/routes/incidents${qs}`, { headers: getAuthHeaders() }, 8000);
+}
+
+export async function fetchAllIncidentStatuses(city) {
+  const params = new URLSearchParams();
+  if (city && city !== "All" && city !== "All Cities") params.set("city", city);
+  // No status param → backend returns all statuses for AUTHORITY/ADMIN, ACTIVE for PUBLIC
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return apiFetch(`/api/routes/incidents${qs}`, { headers: getAuthHeaders() }, 8000);
+}
+
+export async function updateRouteIncidentStatus(id, status, note = "") {
+  return apiFetch(`/api/routes/incidents/${id}/status`, {
+    method: "PATCH",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status, note })
+  }, 10000);
 }
 
 export async function reportIncident(data) {

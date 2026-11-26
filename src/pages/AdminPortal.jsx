@@ -38,6 +38,7 @@ import {
   RefreshCw,
   UserPlus,
   FileCheck2,
+  ShieldCheck,
   X,
   BadgeCheck,
   Clock,
@@ -53,6 +54,7 @@ function AdminPortal() {
   const [usersList, setUsersList] = useState([]);
   const [segmentsList, setSegmentsList] = useState([]);
   const [incidentsList, setIncidentsList] = useState([]);
+  const [incAdminFilter, setIncAdminFilter] = useState("ALL");
   const [, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("overview"); // overview, verification, segments, incidents, users, ml
   const [actionMsg, setActionMsg] = useState("");
@@ -1063,6 +1065,30 @@ function AdminPortal() {
               </div>
             </div>
 
+            {/* Status Filter Tabs */}
+            <div style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+              {["ALL", "ACTIVE", "RESOLVED", "VERIFIED"].map((s) => {
+                const count = s === "ALL" ? incidentsList.length : incidentsList.filter(i => i.status === s).length;
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setIncAdminFilter(s)}
+                    style={{
+                      padding: "5px 16px", borderRadius: 20, border: "1.5px solid",
+                      borderColor: incAdminFilter === s ? "#f59e0b" : "#334155",
+                      background: incAdminFilter === s ? "#f59e0b22" : "transparent",
+                      color: incAdminFilter === s ? "#f59e0b" : "#94a3b8",
+                      fontWeight: incAdminFilter === s ? 700 : 400,
+                      cursor: "pointer", fontSize: 13
+                    }}
+                  >
+                    {s === "ALL" ? `All (${count})` : `${s.charAt(0) + s.slice(1).toLowerCase()} (${count})`}
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="admin-table-wrapper">
               <table className="admin-table">
                 <thead>
@@ -1077,14 +1103,15 @@ function AdminPortal() {
                   </tr>
                 </thead>
                 <tbody>
-                  {incidentsList.map((inc) => (
-                    <tr key={inc._id}>
+                  {(incAdminFilter === "ALL" ? incidentsList : incidentsList.filter(i => i.status === incAdminFilter)).map((inc) => (
+                    <tr key={inc._id} style={{ opacity: inc.status !== "ACTIVE" ? 0.8 : 1 }}>
                       <td>
                         <span className="incident-type-tag">{inc.type}</span>
                       </td>
                       <td>
                         <strong>{inc.roadName || inc.roadId}</strong>
                         <div style={{ fontSize: "0.78rem", color: "#94a3b8" }}>{inc.location}</div>
+                        <div style={{ fontSize: "0.74rem", color: "#64748b" }}>{inc.city || ""}</div>
                       </td>
                       <td>
                         <span className={`severity-tag sev-${inc.severity?.toLowerCase()}`}>
@@ -1109,15 +1136,21 @@ function AdminPortal() {
                             ))}
                         </div>
                       </td>
-                      <td>{inc.reportedBy || "Citizen"}</td>
+                      <td>
+                        {inc.reportedBy || "Citizen"}
+                        {inc.reporterEmail && <div style={{ fontSize: "0.73rem", color: "#64748b" }}>{inc.reporterEmail}</div>}
+                      </td>
                       <td>
                         <span className={`status-pill status-${inc.status?.toLowerCase()}`}>
                           {inc.status}
                         </span>
+                        {inc.resolvedBy && <div style={{ fontSize: 10, color: "#22c55e", marginTop: 2 }}>by {inc.resolvedBy}</div>}
+                        {inc.verifiedBy && <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2 }}>by {inc.verifiedBy}</div>}
+                        {inc.statusNote && <div style={{ fontSize: 10, color: "#94a3b8" }}>{inc.statusNote}</div>}
                       </td>
                       <td>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          {inc.status === "ACTIVE" ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          {inc.status !== "RESOLVED" && (
                             <button
                               type="button"
                               className="btn-table-resolve"
@@ -1125,13 +1158,25 @@ function AdminPortal() {
                             >
                               <FileCheck2 size={13} /> Mark Resolved
                             </button>
-                          ) : (
+                          )}
+                          {inc.status !== "VERIFIED" && (
+                            <button
+                              type="button"
+                              className="btn-table-resolve"
+                              onClick={() => handleIncidentStatus(inc._id, "VERIFIED")}
+                              style={{ background: "#3b82f622", color: "#3b82f6", border: "1px solid #3b82f655" }}
+                            >
+                              <ShieldCheck size={13} /> Mark Verified
+                            </button>
+                          )}
+                          {inc.status !== "ACTIVE" && (
                             <button
                               type="button"
                               className="btn-table-resolve"
                               onClick={() => handleIncidentStatus(inc._id, "ACTIVE")}
+                              style={{ background: "#ef444422", color: "#ef4444", border: "1px solid #ef444455" }}
                             >
-                              Reopen
+                              ↩ Reopen
                             </button>
                           )}
                           <button

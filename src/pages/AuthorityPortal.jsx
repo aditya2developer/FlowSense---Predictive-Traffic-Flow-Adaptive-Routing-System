@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchEnforcementStats,
-  fetchIncidents,
-  resolveIncident,
+  fetchAllIncidentStatuses,
+  updateRouteIncidentStatus,
   fetchAdvisories,
   createAdvisory,
   expireAdvisory,
@@ -70,6 +70,7 @@ function AuthorityPortal() {
   const [prevActiveCity, setPrevActiveCity] = useState(activeCity);
   const [stats, setStats] = useState(null);
   const [incidents, setIncidents] = useState([]);
+  const [incStatusFilter, setIncStatusFilter] = useState("ALL");
   const [advisories, setAdvisories] = useState([]);
   const [, setLoading] = useState(true);
 
@@ -102,7 +103,7 @@ function AuthorityPortal() {
     try {
       const [statsRes, incRes, advRes] = await Promise.all([
         fetchEnforcementStats(city).catch(() => ({ success: false })),
-        fetchIncidents(city).catch(() => ({ success: false, data: [] })),
+        fetchAllIncidentStatuses(city).catch(() => ({ success: false, data: [] })),
         fetchAdvisories().catch(() => ({ success: false, data: [] }))
       ]);
 
@@ -118,7 +119,7 @@ function AuthorityPortal() {
     let active = true;
     Promise.all([
       fetchEnforcementStats(selectedJurisdiction).catch(() => ({ success: false })),
-      fetchIncidents(selectedJurisdiction).catch(() => ({ success: false, data: [] })),
+      fetchAllIncidentStatuses(selectedJurisdiction).catch(() => ({ success: false, data: [] })),
       fetchAdvisories().catch(() => ({ success: false, data: [] }))
     ])
       .then(([statsRes, incRes, advRes]) => {
@@ -135,10 +136,10 @@ function AuthorityPortal() {
     };
   }, [selectedJurisdiction]);
 
-  // Real-time polling every 6 seconds to fetch new hazards in active jurisdiction
+  // Real-time polling every 10 seconds to fetch new hazards in active jurisdiction
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchIncidents(selectedJurisdiction).then((res) => {
+      fetchAllIncidentStatuses(selectedJurisdiction).then((res) => {
         if (res.success && Array.isArray(res.data)) {
           setIncidents(res.data);
         }
@@ -148,7 +149,7 @@ function AuthorityPortal() {
           setStats(res.stats);
         }
       });
-    }, 6000);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [selectedJurisdiction]);
@@ -204,12 +205,16 @@ function AuthorityPortal() {
     }
   }
 
-  async function handleResolveIncident(id) {
+  async function handleUpdateIncidentStatus(id, newStatus) {
     try {
-      const res = await resolveIncident(id);
+      const res = await updateRouteIncidentStatus(id, newStatus);
       if (res.success) {
-        setIncidents((prev) => prev.filter((i) => i._id !== id));
+        setIncidents((prev) =>
+          prev.map((i) => (i._id === id ? { ...i, ...res.data } : i))
+        );
         loadData(selectedJurisdiction);
+      } else {
+        alert(res.message || "Failed to update status.");
       }
     } catch (err) {
       console.error(err);
@@ -324,7 +329,7 @@ function AuthorityPortal() {
         {/* OPERATIONS STATS STRIP FOR ACTIVE CITY */}
         <div className="authority-stats-strip">
           <div className="authority-stat-card">
-            <span className="stat-label">Active Hazards ({selectedJurisdiction})</span>
+            <span className="stat-label">Hazard Reports ({selectedJurisdiction})</span>
             <strong className="stat-value text-red">{incidents.length}</strong>
             <span className="stat-sub">Live Telemetry Feed</span>
           </div>
@@ -473,79 +478,145 @@ function AuthorityPortal() {
               <div className="header-title-group">
                 <AlertTriangle className="header-icon text-amber" size={22} />
                 <div>
-                  <h2>Live Incident Reports &amp; Police Action Plans ({selectedJurisdiction})</h2>
-                  <p>Real-time citizen &amp; patrol reports with AI-recommended action plans for officers.</p>
+                  <h2>Incident Reports &amp; Police Action Plans ({selectedJurisdiction})</h2>
+                  <p>All citizen &amp; patrol reports with AI-recommended action plans. Mark resolved or verified below.</p>
                 </div>
               </div>
               <span className="live-pulse-badge">Live Sync Active</span>
             </div>
 
-            {incidents.length === 0 ? (
-              <div className="empty-hazards-state">
-                <CheckCircle2 size={36} className="text-emerald" />
-                <p>No active hazards reported in {selectedJurisdiction}. All corridors flowing smoothly.</p>
-              </div>
-            ) : (
-              <div className="authority-table-wrapper">
-                <table className="authority-table">
-                  <thead>
-                    <tr>
-                      <th>Hazard Type</th>
-                      <th>Corridor &amp; City</th>
-                      <th>Severity</th>
-                      <th>Details &amp; Landmark</th>
-                      <th>What Police Should Do (Action Plan)</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {incidents.map((inc) => (
-                      <tr key={inc._id}>
-                        <td>
-                          <span className="incident-type-tag">{inc.type}</span>
-                        </td>
-                        <td>
-                          <strong>{inc.roadName || inc.roadId}</strong>
-                          <div className="sub-city-tag">{inc.city || "Jurisdiction"}</div>
-                        </td>
-                        <td>
-                          <span className={`severity-tag sev-${inc.severity?.toLowerCase()}`}>
-                            {inc.severity}
-                          </span>
-                        </td>
-                        <td style={{ maxWidth: 200 }}>
-                          <div>{inc.description}</div>
-                          {inc.location && <div className="location-hint">📍 {inc.location}</div>}
-                          <div className="reporter-hint">By {inc.reportedBy} • 👍 {inc.upvotes || 1}</div>
-                          {Array.isArray(inc.images) && inc.images.length > 0 && (
-                            <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
-                              {inc.images.map((src, i) => (
-                                <img key={i} src={src} alt="Evidence" className="admin-inc-thumb" />
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ maxWidth: 260 }}>
-                          <div className="police-action-plan-cell">
-                            <Sparkles size={13} className="text-amber" />
-                            <span>{inc.recommendation || "Dispatch nearest patrol bike to verify coordinates and deploy warning cones."}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <button
-                            className="authority-resolve-action-btn"
-                            onClick={() => handleResolveIncident(inc._id)}
-                            title="Mark hazard as cleared in database"
-                          >
-                            ✓ Mark Resolved
-                          </button>
-                        </td>
+            {/* Status Filter Tabs */}
+            <div className="inc-status-filter-tabs" style={{ display: "flex", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+              {["ALL", "ACTIVE", "RESOLVED", "VERIFIED"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setIncStatusFilter(s)}
+                  style={{
+                    padding: "5px 16px",
+                    borderRadius: 20,
+                    border: "1.5px solid",
+                    borderColor: incStatusFilter === s ? "#f59e0b" : "#334155",
+                    background: incStatusFilter === s ? "#f59e0b22" : "transparent",
+                    color: incStatusFilter === s ? "#f59e0b" : "#94a3b8",
+                    fontWeight: incStatusFilter === s ? 700 : 400,
+                    cursor: "pointer",
+                    fontSize: 13
+                  }}
+                >
+                  {s === "ALL" ? `All (${incidents.length})` : `${s.charAt(0) + s.slice(1).toLowerCase()} (${incidents.filter(i => i.status === s).length})`}
+                </button>
+              ))}
+            </div>
+
+            {(() => {
+              const filtered = incStatusFilter === "ALL" ? incidents : incidents.filter(i => i.status === incStatusFilter);
+              return filtered.length === 0 ? (
+                <div className="empty-hazards-state">
+                  <CheckCircle2 size={36} className="text-emerald" />
+                  <p>No {incStatusFilter !== "ALL" ? incStatusFilter.toLowerCase() + " " : ""}hazards in {selectedJurisdiction}. All corridors flowing smoothly.</p>
+                </div>
+              ) : (
+                <div className="authority-table-wrapper">
+                  <table className="authority-table">
+                    <thead>
+                      <tr>
+                        <th>Hazard Type</th>
+                        <th>Corridor &amp; City</th>
+                        <th>Severity</th>
+                        <th>Status</th>
+                        <th>Details &amp; Landmark</th>
+                        <th>Action Plan</th>
+                        <th>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {filtered.map((inc) => (
+                        <tr key={inc._id} style={{ opacity: inc.status !== "ACTIVE" ? 0.75 : 1 }}>
+                          <td>
+                            <span className="incident-type-tag">{inc.type}</span>
+                          </td>
+                          <td>
+                            <strong>{inc.roadName || inc.roadId}</strong>
+                            <div className="sub-city-tag">{inc.city || "Jurisdiction"}</div>
+                          </td>
+                          <td>
+                            <span className={`severity-tag sev-${inc.severity?.toLowerCase()}`}>
+                              {inc.severity}
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{
+                              padding: "2px 10px",
+                              borderRadius: 12,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: inc.status === "ACTIVE" ? "#ef444422" : inc.status === "RESOLVED" ? "#22c55e22" : "#3b82f622",
+                              color: inc.status === "ACTIVE" ? "#ef4444" : inc.status === "RESOLVED" ? "#22c55e" : "#3b82f6"
+                            }}>
+                              {inc.status}
+                            </span>
+                            {inc.resolvedBy && <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>by {inc.resolvedBy}</div>}
+                            {inc.verifiedBy && <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>by {inc.verifiedBy}</div>}
+                          </td>
+                          <td style={{ maxWidth: 200 }}>
+                            <div>{inc.description}</div>
+                            {inc.location && <div className="location-hint">📍 {inc.location}</div>}
+                            <div className="reporter-hint">By {inc.reportedBy} • 👍 {inc.upvotes || 1}</div>
+                            {Array.isArray(inc.images) && inc.images.length > 0 && (
+                              <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
+                                {inc.images.map((src, i) => (
+                                  <img key={i} src={src} alt="Evidence" className="admin-inc-thumb" />
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ maxWidth: 260 }}>
+                            <div className="police-action-plan-cell">
+                              <Sparkles size={13} className="text-amber" />
+                              <span>{inc.recommendation || "Dispatch nearest patrol bike to verify coordinates and deploy warning cones."}</span>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                              {inc.status !== "RESOLVED" && (
+                                <button
+                                  className="authority-resolve-action-btn"
+                                  onClick={() => handleUpdateIncidentStatus(inc._id, "RESOLVED")}
+                                  title="Mark hazard as resolved"
+                                  style={{ background: "#22c55e22", color: "#22c55e", border: "1px solid #22c55e55" }}
+                                >
+                                  ✓ Mark Resolved
+                                </button>
+                              )}
+                              {inc.status !== "VERIFIED" && (
+                                <button
+                                  className="authority-resolve-action-btn"
+                                  onClick={() => handleUpdateIncidentStatus(inc._id, "VERIFIED")}
+                                  title="Mark hazard as verified by authority"
+                                  style={{ background: "#3b82f622", color: "#3b82f6", border: "1px solid #3b82f655" }}
+                                >
+                                  ✔ Mark Verified
+                                </button>
+                              )}
+                              {inc.status !== "ACTIVE" && (
+                                <button
+                                  className="authority-resolve-action-btn"
+                                  onClick={() => handleUpdateIncidentStatus(inc._id, "ACTIVE")}
+                                  title="Reopen this incident"
+                                  style={{ background: "#ef444422", color: "#ef4444", border: "1px solid #ef444455" }}
+                                >
+                                  ↩ Reopen
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </section>
         </div>
 

@@ -53,7 +53,12 @@ const incidentSchema = new mongoose.Schema(
     coordinates: {
       latitude: { type: Number },
       longitude: { type: Number }
-    }
+    },
+    resolvedBy: { type: String, default: "" },
+    resolvedAt: { type: Date },
+    verifiedBy: { type: String, default: "" },
+    verifiedAt: { type: Date },
+    statusNote: { type: String, default: "" }
   },
   { timestamps: true }
 );
